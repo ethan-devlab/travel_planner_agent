@@ -1,0 +1,161 @@
+{% extends "common/base.html" %}
+{% load static %}
+
+{% block title %}搜尋行程{% endblock %}
+
+{% block content %}
+<div class="search-page">
+    <h2 class="page-header">
+        <i class="ri-search-line"></i>
+        搜尋旅遊行程
+    </h2>
+    
+    <div class="quick-filters">
+        <h6>
+            <i class="ri-filter-line"></i>
+            快速篩選
+        </h6>
+        <div class="filter-tags">
+            <a href="?travel_method=walk" class="filter-tag"><i class="ri-walk-line"></i>步行旅遊</a>
+            <a href="?travel_method=car" class="filter-tag"><i class="ri-car-line"></i>自駕遊</a>
+            <a href="?travel_method=plane" class="filter-tag"><i class="ri-plane-line"></i>航空旅遊</a>
+            <a href="?location=日本" class="filter-tag"><i class="ri-map-pin-line"></i>日本</a>
+            <a href="?location=台灣" class="filter-tag"><i class="ri-map-pin-line"></i>台灣</a>
+            <a href="?budget=10000" class="filter-tag"><i class="ri-wallet-3-line"></i>預算友善</a>
+        </div>
+    </div>
+
+    <div class="search-section">
+        <h5 class="section-title">
+            <i class="ri-search-line"></i>
+            搜尋條件
+        </h5>
+        
+        <form method="get">
+            <div class="form-group">
+                <label class="form-label" for="id_q">
+                    <i class="ri-text"></i>
+                    關鍵字
+                </label>
+                {{ form.q }}
+            </div>
+
+            <div class="input-group">
+                <div class="form-group">
+                    <label class="form-label" for="id_location">
+                        <i class="ri-map-pin-line"></i>
+                        地點 / 國家
+                    </label>
+                    {{ form.location }}
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="id_travel_method">
+                        <i class="ri-road-map-line"></i>
+                        旅遊方式
+                    </label>
+                    {{ form.travel_method }}
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="id_transport">
+                        <i class="ri-bus-line"></i>
+                        交通方式
+                    </label>
+                    {{ form.transport }}
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="id_budget">
+                        <i class="ri-money-dollar-circle-line"></i>
+                        預算
+                    </label>
+                    {{ form.budget }}
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="id_start_date">
+                        <i class="ri-calendar-line"></i>
+                        開始日期
+                    </label>
+                    {{ form.start_date }}
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="id_end_date">
+                        <i class="ri-calendar-check-line"></i>
+                        結束日期
+                    </label>
+                    {{ form.end_date }}
+                </div>
+            </div>
+
+            <div class="submit-section">
+                <button type="submit" class="btn btn-primary">
+                    <i class="ri-search-line"></i>
+                    開始搜尋
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {% if results %}
+    <div class="results-section">
+        <h5 class="results-header">
+            <i class="ri-list-check-line"></i>
+            搜尋結果 ({{ results|length }} 個行程)
+        </h5>
+        
+        {% for itinerary in results %}
+        <div class="itinerary-card">
+            <h5 class="card-title">
+                <i class="ri-map-2-line"></i>
+                <a href="{% url 'itinerary_detail' itinerary.id %}">
+                    {{ itinerary.title }}
+                </a>
+            </h5>
+            
+            <div class="card-details">
+                <div class="detail-item">
+                    <i class="ri-calendar-line"></i>
+                    <span>{{ itinerary.start_date }} ~ {{ itinerary.end_date }}</span>
+                </div>
+                <div class="detail-item">
+                    <i class="ri-money-dollar-circle-line"></i>
+                    <span>預算：${{ itinerary.budget|default:"未設定" }}</span>
+                </div>
+                <div class="detail-item">
+                    <i class="ri-map-pin-line"></i>
+                    <span>{{ itinerary.locations.count|default:0 }} 個地點</span>
+                </div>
+            </div>
+
+            {% if itinerary.description %}
+            <div class="detail-item">
+                <i class="ri-file-text-line"></i>
+                <span>{{ itinerary.description|truncatewords:20 }}</span>
+            </div>
+            {% endif %}
+
+            <div class="tag-group">
+                {% for tag in itinerary.tags.all %}
+                <span class="badge bg-secondary">{{ tag.name }}</span>
+                {% endfor %}
+                
+                {% with itinerary.locations.first as loc %}
+                {% if loc %}
+                <span class="badge bg-primary">{{ loc.get_travel_method_display }}</span>
+                <span class="badge bg-success">{{ loc.name }}</span>
+                {% if loc.note %}
+                <span class="badge bg-info">{{ loc.note }}</span>
+                {% endif %}
+                {% endif %}
+                {% endwith %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon"><i class="ri-search-line"></i></div>
+        <h4>沒有找到符合條件的行程</h4>
+        <p>試著調整搜尋條件，或瀏覽所有行程來發現更多精彩旅程！</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,153 @@
+{% extends 'common/base.html' %}
+{% load static %}
+
+{% block title %}貨幣兌換{% endblock %}
+
+{% block content %}
+<div class="exchange-page">
+    <h2 class="page-header">
+        <i class="ri-exchange-dollar-line"></i>
+        貨幣兌換計算器
+    </h2>
+
+    <div class="exchange-section">
+        <form method="post" id="exchange-form">
+            {% csrf_token %}
+            
+            <div class="exchange-container">
+                <div class="currency-section">
+                    <label class="form-label" for="amount">
+                        <i class="ri-money-dollar-circle-line"></i>
+                        金額
+                    </label>
+                    <input type="number" name="amount" id="amount" class="form-control" 
+                           placeholder="輸入金額，如：100" required step="0.01" min="0"
+                           value="{{ request.POST.amount }}">
+                    <small class="form-text" id="input-info" hidden>
+                        金額必須為正數，且可包含最多兩位小數
+                    </small>
+                </div>
+
+                <div class="currency-section">
+                    <label class="form-label" for="from_currency">
+                        <i class="ri-arrow-right-up-line"></i>
+                        從
+                    </label>
+                    <select name="from_currency" id="from_currency" class="form-select" required>
+                        {% if request.POST.from_currency %}
+                            <option value="{{ request.POST.from_currency }}" selected>
+                                {{ from.code }} - {{ from.name }}
+                            </option>
+                        {% else %}
+                            <option value="" selected disabled>選擇來源貨幣</option>
+                        {% endif %}
+                        {% for c in currencies %}
+                            {% if c.code != request.POST.from_currency %}
+                                <option value="{{ c.code }}">{{ c.code }} - {{ c.name }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="currency-section">
+                    <label class="form-label" for="to_currency">
+                        <i class="ri-arrow-right-down-line"></i>
+                        到
+                    </label>
+                    <select name="to_currency" id="to_currency" class="form-select" required>
+                        {% if request.POST.to_currency %}
+                            <option value="{{ request.POST.to_currency }}" selected>
+                                {{ to.code }} - {{ to.name }}
+                            </option>
+                        {% else %}
+                            <option value="" selected disabled>選擇目標貨幣</option>
+                        {% endif %}
+                        {% for c in currencies %}
+                            {% if c.code != request.POST.to_currency %}
+                                <option value="{{ c.code }}">{{ c.code }} - {{ c.name }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="currency-section">
+                    <button class="convert-button" type="submit">
+                        <i class="ri-exchange-line"></i>
+                        兌換計算
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {% if result %}
+    <div class="result-section">
+        <p class="result-text">
+            <i class="ri-check-double-line"></i>
+            {{ result }}
+        </p>
+        {% if from and to %}
+        <div class="currency-display">
+            <div class="currency-info">
+                <span class="currency-flag">{{ from.code }}</span>
+                <span class="currency-code">{{ from.code }}</span>
+            </div>
+            <i class="ri-arrow-right-line exchange-arrow"></i>
+            <div class="currency-info">
+                <span class="currency-flag">{{ to.code }}</span>
+                <span class="currency-code">{{ to.code }}</span>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="info-section">
+        <h6 class="info-title">
+            <i class="ri-information-line"></i>
+            使用說明
+        </h6>
+        <p class="info-text">
+            此工具提供即時匯率計算，幫助您在旅行規劃時快速了解不同貨幣間的兌換關係。
+            匯率資料會定期更新，但實際兌換時請以銀行或兌換所的即時匯率為準。
+        </p>
+    </div>
+</div>
+
+<script>
+    const amountInput = document.getElementById('amount');
+    const inputInfo = document.getElementById('input-info');
+    const form = document.getElementById('exchange-form');
+
+    amountInput.addEventListener('input', function() {
+        const value = Number.parseFloat(this.value);
+        
+        if (this.value === '' || value < 0 || Number.isNaN(value)) {
+            this.classList.add('is-invalid');
+            this.classList.remove('is-valid');
+            inputInfo.hidden = false;
+        } else {
+            this.classList.remove('is-invalid');
+            this.classList.add('is-valid');
+            inputInfo.hidden = true;
+        }
+    });
+
+    form.addEventListener('submit', function(e) {
+        const amount = Number.parseFloat(amountInput.value);
+        
+        if (Number.isNaN(amount) || amount <= 0) {
+            e.preventDefault();
+            amountInput.classList.add('is-invalid');
+            inputInfo.hidden = false;
+            amountInput.focus();
+        }
+    });
+
+    amountInput.addEventListener('focus', function() {
+        this.classList.remove('is-invalid');
+        inputInfo.hidden = true;
+    });
+</script>
+
+{% endblock %}

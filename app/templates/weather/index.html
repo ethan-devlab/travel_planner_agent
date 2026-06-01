@@ -1,0 +1,162 @@
+{% extends 'common/base.html' %}
+{% load static %}
+
+{% block title %}天氣查詢{% endblock %}
+
+{% block content %}
+<div class="weather-page">
+    <h2 class="page-header">
+        <i class="ri-cloud-windy-line"></i>
+        查詢天氣及未來3天預報
+    </h2>
+    
+    <div class="weather-search-section">
+        <form method="post" class="search-form">
+            {% csrf_token %}
+            <div class="search-input-container">
+                <input type="text" name="city" class="city-input" placeholder="輸入城市名稱，如：台北市、東京都、New York" required>
+            </div>
+            <button type="submit" class="search-button">
+                <i class="ri-search-line"></i>
+                查詢天氣
+            </button>
+        </form>
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}" role="alert">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {% if weather_data %}
+    <div class="current-weather-section">
+        <h3 class="city-title">{{ weather_data.city }}, {{ weather_data.country }}</h3>
+        <p class="section-subtitle">目前天氣狀況</p>
+        
+        <div class="current-weather-card">
+            <div class="weather-header">
+                <div class="weather-time-info">
+                    <div class="weather-time">{{ weather_data.time }} <span class="text-xs">(最後更新)</span></div>
+                    <div class="weather-date">{{ weather_data.date }}</div>
+                    <div class="weather-description">{{ weather_data.description }}</div>
+                </div>
+                <img src="https://openweathermap.org/themes/openweathermap/assets/vendor/owm/img/widgets/{{ weather_data.icon }}.png" 
+                     alt="{{ weather_data.description }}" class="weather-icon">
+            </div>
+            
+            <div class="weather-details">
+                <div class="temperature-display">
+                    <p class="temperature-value">{{ weather_data.temperature }}°C</p>
+                </div>
+                
+                <div class="details-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th colspan="2">詳細資訊</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>體感溫度</td>
+                                <td>{{ weather_data.feels_like }}°C</td>
+                            </tr>
+                            <tr>
+                                <td>風速</td>
+                                <td>{{ weather_data.wind_speed }} km/h</td>
+                            </tr>
+                            <tr>
+                                <td>濕度</td>
+                                <td>{{ weather_data.humidity }}%</td>
+                            </tr>
+                            <tr>
+                                <td>能見度</td>
+                                <td>{{ weather_data.visibility }} km</td>
+                            </tr>
+                            <tr>
+                                <td>雲量</td>
+                                <td>{{ weather_data.cloudiness }}%</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if daily_forecasts %}
+    <div class="forecast-section">
+        <p class="section-subtitle">{{ weather_data.city }} 未來3天預報</p>
+        
+        <div class="forecast-container">
+            {% for forecast in daily_forecasts %}
+            <div class="forecast-card">
+                <div class="forecast-inner">
+                    <div class="forecast-front">
+                        <div class="forecast-day">{{ forecast.day }}</div>
+                        <div class="forecast-date">{{ forecast.date }} {{ forecast.time }}</div>
+                        <img src="https://openweathermap.org/themes/openweathermap/assets/vendor/owm/img/widgets/{{ forecast.icon }}.png" 
+                             alt="{{ forecast.description }}" class="forecast-icon">
+                        <div class="forecast-temp">約 {{ forecast.temperature }}°C</div>
+                        <div class="forecast-desc">{{ forecast.description }}</div>
+                    </div>
+                    
+                    <div class="forecast-back">
+                        <table class="forecast-details-table">
+                            <thead>
+                                <tr>
+                                    <th colspan="2">詳細資訊</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>體感溫度</td>
+                                    <td>{{ forecast.feels_like }}°C</td>
+                                </tr>
+                                <tr>
+                                    <td>最低溫</td>
+                                    <td>{{ forecast.temp_min }}°C</td>
+                                </tr>
+                                <tr>
+                                    <td>最高溫</td>
+                                    <td>{{ forecast.temp_max }}°C</td>
+                                </tr>
+                                <tr>
+                                    <td>風速</td>
+                                    <td>{{ forecast.wind_speed }} km/h</td>
+                                </tr>
+                                <tr>
+                                    <td>陣風</td>
+                                    <td>{{ forecast.wind_gust }} km/h</td>
+                                </tr>
+                                <tr>
+                                    <td>濕度</td>
+                                    <td>{{ forecast.humidity }}%</td>
+                                </tr>
+                                <tr>
+                                    <td>能見度</td>
+                                    <td>{{ forecast.visibility }} km</td>
+                                </tr>
+                                <tr>
+                                    <td>雲量</td>
+                                    <td>{{ forecast.cloudiness }}%</td>
+                                </tr>
+                                <tr>
+                                    <td>降雨機率</td>
+                                    <td>{{ forecast.pop }}%</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

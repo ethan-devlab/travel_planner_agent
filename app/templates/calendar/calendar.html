@@ -1,0 +1,105 @@
+{% extends 'common/base.html' %}
+{% load static %}
+
+{% block title %}行事曆{% endblock %}
+
+{% block content %}
+<div class="calendar-container">
+    <h2 class="page-header">
+        <i class="ri-calendar-2-line"></i>
+        旅行行事曆
+    </h2>
+
+    <div class="event-form-section">
+        <div class="event-form">
+            {% csrf_token %}
+            <div class="form-group">
+                <label class="form-label" for="event-name">
+                    <i class="ri-calendar-event-line"></i>
+                    活動名稱
+                </label>
+                <input type="text" id="event-name" class="form-control" placeholder="輸入活動名稱">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="event-date">
+                    <i class="ri-calendar-line"></i>
+                    日期
+                </label>
+                <input type="date" id="event-date" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" for="event-color">
+                    <i class="ri-palette-line"></i>
+                    類別
+                </label>
+                <select id="event-color" class="form-select">
+                    <option value="orange">工作</option>
+                    <option value="blue">運動</option>
+                    <option value="yellow">家庭</option>
+                    <option value="green">旅行</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <button id="add-event-button" class="add-event-btn">
+                    <i class="ri-add-line"></i>
+                    新增活動
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="delete-section">
+        <h3 class="section-title">
+            <i class="ri-delete-bin-line"></i>
+            刪除活動
+        </h3>
+        <p class="section-description">點擊日曆中的活動，然後點擊刪除按鈕來移除活動</p>
+        <div class="delete-instructions">
+            <div class="instruction-item">
+                <i class="ri-mouse-line"></i>
+                <span>點擊日期查看活動</span>
+            </div>
+            <div class="instruction-item">
+                <i class="ri-delete-bin-2-line"></i>
+                <span>點擊活動右側的刪除圖示</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="legend-section">
+        <h3 class="section-title">
+            <i class="ri-palette-line"></i>
+            活動類別
+        </h3>
+        <div class="legend-grid">
+            <div class="legend-item">
+                <div class="legend-color orange"></div>
+                <span class="legend-text">工作</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color blue"></div>
+                <span class="legend-text">運動</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color yellow"></div>
+                <span class="legend-text">家庭</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color green"></div>
+                <span class="legend-text">旅行</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="calendar-wrapper">
+        <div id="calendar"></div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.5.1/moment.min.js" integrity="sha512-r8lfwD+xE5L0FjDLicb4ZiF32sJqCAOnLN0nxQq5VW0t0nFEEiNIvTZ/I9Su4ulGpDCfYjXsSFZsT9FpILp2+A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="{% static 'calendar/js/calendar.js' %}" defer></script>
+
+{% endblock %}

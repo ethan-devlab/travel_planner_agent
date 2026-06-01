@@ -1,0 +1,119 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.5.0/fonts/remixicon.css">
+    <link rel="stylesheet" href="{% static 'dist/app.css' %}?v=20260531-planner-cards">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23245f5a'/%3E%3Cpath d='M8 21.5 14 7l4 9 6-5.5-5.5 14-4-8.5z' fill='white'/%3E%3C/svg%3E">
+    <title>{% block title %}TravelPlanner{% endblock %}</title>
+
+    {% block styles %}{% endblock %}
+</head>
+
+<body class="app-shell">
+    <button class="mobile-menu-toggle" type="button" aria-label="開啟導覽列" onclick="toggleSidebar()">
+        <i class="ri-menu-line"></i>
+    </button>
+
+    <div class="sidebar" id="sidebar">
+        <div class="brand-mark">
+            <span class="brand-icon"><i class="ri-map-2-line"></i></span>
+            <span class="brand-text">TravelPlanner</span>
+        </div>
+        
+        <div class="nav-links">
+            <a class="nav-link {% if request.resolver_match.url_name == 'search' %}active{% endif %}" href="{% url 'search' %}">
+                <i class="ri-home-4-line"></i>
+                首頁
+            </a>
+            <a class="nav-link {% if request.resolver_match.url_name == 'create' %}active{% endif %}" href="{% url 'create' %}">
+                <i class="ri-add-box-line"></i>
+                創建行程
+            </a>
+            <a class="nav-link {% if request.resolver_match.url_name == 'my_itineraries' %}active{% endif %}" href="{% url 'my_itineraries' %}">
+                <i class="ri-list-check-3"></i>
+                我的項目
+            </a>
+            <a class="nav-link {% if request.resolver_match.url_name == 'shared_itineraries' %}active{% endif %}" href="{% url 'shared_itineraries' %}">
+                <i class="ri-team-line"></i>
+                與我協作
+            </a>            
+            <a class="nav-link {% if request.resolver_match.url_name == 'template_list' %}active{% endif %}" href="{% url 'template_list' %}">
+                <i class="ri-layout-grid-line"></i>
+                模板庫
+            </a>
+            <a class="nav-link {% if request.resolver_match.url_name == 'weather' %}active{% endif %}" href="{% url 'weather' %}">
+                <i class="ri-cloud-windy-line"></i>
+                天氣預報
+            </a>
+            <a class="nav-link {% if request.resolver_match.url_name == 'exchange' %}active{% endif %}" href="{% url 'exchange' %}">
+                <i class="ri-exchange-dollar-line"></i>
+                貨幣兌換
+            </a>
+            <a class="nav-link {% if request.resolver_match.url_name == 'calendar' %}active{% endif %}" href="{% url 'calendar' %}">
+                <i class="ri-calendar-2-line"></i>
+                行事曆
+            </a>
+            <a class="nav-link {% if request.resolver_match.url_name == 'planner_agent' %}active{% endif %}" href="{% url 'planner_agent' %}">
+                <i class="ri-robot-2-line"></i>
+                planner agent
+            </a>
+        </div>
+
+        <div class="sidebar-auth">
+            {% if user.is_authenticated %}
+                <div class="user-info">
+                    <i class="ri-user-line"></i>
+                    <span class="username">{{ user.username }}</span>
+                </div>
+                <a href="{% url 'logout' %}" class="auth-btn logout-btn">
+                    <i class="ri-logout-box-line"></i> 登出
+                </a>
+            {% else %}
+                <a href="{% url 'login' %}" class="auth-btn login-btn">
+                    <i class="ri-login-box-line"></i> 登入
+                </a>
+                <a href="{% url 'register' %}" class="auth-btn register-btn">
+                    <i class="ri-user-add-line"></i> 註冊
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <main class="app-main">
+        <div class="container content-panel">
+            {% block content %}
+            {% endblock %}
+        </div>
+    </main>
+
+    <script>
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('show');
+        }
+
+        document.addEventListener('click', function(event) {
+            const sidebar = document.getElementById('sidebar');
+            const toggle = document.querySelector('.mobile-menu-toggle');
+            
+            if (window.innerWidth <= 768) {
+                if (!sidebar.contains(event.target) && !toggle.contains(event.target)) {
+                    sidebar.classList.remove('show');
+                }
+            }
+        });
+
+        window.addEventListener('resize', function() {
+            const sidebar = document.getElementById('sidebar');
+            if (window.innerWidth > 768) {
+                sidebar.classList.remove('show');
+            }
+        });
+    </script>
+</body>
+
+</html>

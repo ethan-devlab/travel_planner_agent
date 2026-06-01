@@ -1,0 +1,932 @@
+@import "tailwindcss" source(none);
+
+@source "../../templates";
+@source "../calendar/js";
+@source "../itinerary/js";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  --color-coast-50: #f5faf8;
+  --color-coast-100: #e6f2ef;
+  --color-coast-200: #bfdcd6;
+  --color-coast-300: #8bbdb5;
+  --color-coast-400: #4f948f;
+  --color-coast-500: #2f766f;
+  --color-coast-600: #245f5a;
+  --color-coast-700: #1f4d4a;
+  --color-harbor-50: #f3f7fb;
+  --color-harbor-100: #dfeaf4;
+  --color-harbor-200: #b9d0e5;
+  --color-harbor-500: #376b91;
+  --color-harbor-700: #244862;
+  --color-sand-50: #fbf7ef;
+  --color-sand-100: #f0e4cf;
+  --color-sand-200: #dfcaa9;
+  --color-ink-900: #17201f;
+  --color-ink-700: #344240;
+  --color-ink-500: #64716f;
+}
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  body {
+    @apply min-h-screen bg-coast-50 font-sans text-ink-900 antialiased;
+  }
+
+  a {
+    @apply text-inherit;
+  }
+
+  table {
+    @apply w-full border-collapse;
+  }
+}
+
+@layer components {
+  .app-shell {
+    @apply min-h-screen bg-coast-50;
+  }
+
+  .mobile-menu-toggle {
+    @apply fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-coast-200 bg-white text-xl text-coast-700 shadow-sm lg:hidden;
+  }
+
+  .sidebar {
+    @apply fixed inset-y-0 left-0 z-40 flex w-72 -translate-x-full flex-col border-r border-coast-200 bg-white px-4 py-5 shadow-sm transition-transform duration-200 lg:translate-x-0;
+  }
+
+  .sidebar.show {
+    @apply translate-x-0;
+  }
+
+  .brand-mark {
+    @apply mb-6 flex items-center gap-3 rounded-lg border border-coast-100 bg-coast-50 px-3 py-3;
+  }
+
+  .brand-icon {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-lg bg-coast-600 text-xl text-white;
+  }
+
+  .brand-text {
+    @apply text-lg font-semibold tracking-normal text-ink-900;
+  }
+
+  .nav-links {
+    @apply flex flex-1 flex-col gap-1;
+  }
+
+  .nav-link {
+    @apply flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-ink-700 transition hover:bg-coast-50 hover:text-coast-700;
+  }
+
+  .nav-link i,
+  .auth-btn i,
+  .section-title i,
+  .form-label i,
+  .detail-item i {
+    @apply text-base text-coast-600;
+  }
+
+  .nav-link.active {
+    @apply bg-coast-600 text-white hover:bg-coast-700 hover:text-white;
+  }
+
+  .nav-link.active i {
+    @apply text-white;
+  }
+
+  .sidebar-auth {
+    @apply mt-5 border-t border-coast-100 pt-4;
+  }
+
+  .user-info {
+    @apply mb-3 flex min-h-10 items-center gap-2 rounded-lg bg-coast-50 px-3 py-2 text-sm font-medium text-ink-700;
+  }
+
+  .username {
+    @apply truncate;
+  }
+
+  .auth-btn {
+    @apply mb-2 flex min-h-10 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition;
+  }
+
+  .login-btn,
+  .register-btn {
+    @apply border-coast-600 text-coast-700 hover:bg-coast-50;
+  }
+
+  .logout-btn {
+    @apply border-rose-200 text-rose-700 hover:bg-rose-50;
+  }
+
+  .app-main {
+    @apply min-h-screen px-4 py-20 sm:px-6 lg:ml-72 lg:px-8 lg:py-8;
+  }
+
+  .container,
+  .auth-container {
+    @apply mx-auto w-full max-w-6xl;
+  }
+
+  .content-panel {
+    @apply rounded-lg border border-coast-200 bg-white p-4 shadow-sm sm:p-6 lg:p-8;
+  }
+
+  .page-header {
+    @apply mb-8 flex items-center gap-3 text-2xl font-semibold tracking-normal text-ink-900 sm:text-3xl;
+  }
+
+  .page-header i {
+    @apply text-coast-600;
+  }
+
+  .section-title,
+  .results-header,
+  .expenses-title,
+  .info-title {
+    @apply mb-4 flex items-center gap-2 border-b border-coast-100 pb-3 text-base font-semibold tracking-normal text-ink-900;
+  }
+
+  .section-description,
+  .section-subtitle,
+  .intro-text,
+  .description-text,
+  .info-text {
+    @apply text-sm leading-6 text-ink-500;
+  }
+
+  .form-section,
+  .weather-search-section,
+  .exchange-section,
+  .event-form-section,
+  .planner-chat-section,
+  .planner-scope-section,
+  .delete-section,
+  .legend-section,
+  .stats-section, 
+  .templates-intro,
+  .itinerary-overview,
+  .locations-section,
+  .tags-section,
+  .route-section,
+  .info-section,
+  .result-section,
+  .search-section {
+    @apply rounded-lg border border-coast-200 bg-white p-4 shadow-sm sm:p-6 lg:p-7;
+  }
+
+  /* Keep nested form controls and action rows visually separated inside panels. */
+  .create-itinerary-page > form,
+  .edit-itinerary-page > form,
+  .search-section form,
+  .exchange-section form {
+    @apply grid gap-7;
+  }
+
+  .search-form {
+    @apply grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end;
+  }
+
+  .search-input-container {
+    @apply min-w-0;
+  }
+
+  .form-section p,
+  .form-group,
+  .currency-section {
+    @apply mb-4 flex flex-col gap-2.5;
+  }
+
+  .input-group .form-group,
+  .basic-info-grid .form-group,
+  .event-form .form-group,
+  .exchange-container .currency-section,
+  .auth-page .form-group {
+    @apply mb-0;
+  }
+
+  .form-label {
+    @apply flex items-center gap-2 text-sm font-medium text-ink-700;
+  }
+
+  .form-control,
+  .form-select,
+  .city-input {
+    @apply min-h-11 w-full rounded-lg border border-coast-200 bg-white px-3 py-2 text-sm text-ink-900 outline-none transition placeholder:text-ink-500 focus:border-coast-500 focus:ring-2 focus:ring-coast-100;
+  }
+
+  textarea.form-control {
+    @apply min-h-28;
+  }
+
+  .form-check-input {
+    @apply h-4 w-4 rounded border-coast-300 text-coast-600 focus:ring-coast-500;
+  }
+
+  .input-group,
+  .basic-info-grid,
+  .event-form,
+  .exchange-container {
+    @apply grid gap-5 sm:gap-6 md:grid-cols-2 xl:grid-cols-3;
+  }
+
+  .event-form .form-group:last-child,
+  .exchange-container .currency-section:last-child {
+    @apply self-end;
+  }
+
+  .btn,
+  .search-button,
+  .convert-button,
+  .add-event-btn {
+    @apply inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border border-transparent px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-coast-200 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-60 sm:px-5;
+  }
+
+  .btn-sm {
+    @apply min-h-9 px-3.5 py-1.5 text-xs;
+  }
+
+  .search-button,
+  .convert-button,
+  .add-event-btn {
+    @apply w-full;
+  }
+
+  .btn-primary,
+  .search-button,
+  .convert-button,
+  .add-event-btn,
+  .btn-success {
+    @apply bg-coast-600 text-white hover:bg-coast-700;
+  }
+
+  .btn-secondary,
+  .btn-outline-secondary {
+    @apply border-coast-200 bg-white text-ink-700 hover:bg-coast-50;
+  }
+
+  .btn-outline-primary {
+    @apply border-coast-300 bg-white text-coast-700 hover:bg-coast-50;
+  }
+
+  .btn-danger,
+  .btn-outline-danger {
+    @apply border-rose-200 bg-white text-rose-700 hover:bg-rose-50;
+  }
+
+  .itinerary-grid,
+  .templates-grid,
+  .forecast-container,
+  .overview-grid,
+  .stats-grid,
+  .legend-grid {
+    @apply grid gap-4;
+  }
+
+  .itinerary-grid,
+  .templates-grid,
+  .forecast-container {
+    @apply md:grid-cols-2;
+  }
+
+  .overview-grid,
+  .stats-grid,
+  .legend-grid {
+    @apply sm:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .temperature-display {
+    @apply flex items-center text-center justify-items-center;
+  }
+
+  .itinerary-card,
+  .template-card,
+  .location-card,
+  .location-entry,
+  .forecast-card,
+  .current-weather-card,
+  .card,
+  .overview-item,
+  .stat-item,
+  .legend-item,
+  .instruction-item,
+  .details-table,
+  .temperature-display {
+    @apply rounded-lg border border-coast-200 bg-white p-4 shadow-sm sm:p-5;
+  }
+
+  .card-header,
+  .template-header,
+  .location-header,
+  .expense-header,
+  .weather-header,
+  .actions-section,
+  .card-actions,
+  .template-actions,
+  .action-buttons,
+  .submit-section {
+    @apply flex flex-wrap items-center gap-3;
+  }
+
+  .card-header,
+  .template-header,
+  .location-header,
+  .expense-header,
+  .weather-header {
+    @apply justify-between;
+  }
+
+  .card-actions,
+  .template-actions,
+  .actions-section,
+  .action-buttons,
+  .submit-section {
+    @apply mt-2 justify-end border-t border-coast-100 pt-5;
+  }
+
+  .card-title,
+  .template-title,
+  .location-name,
+  .city-title {
+    @apply flex min-w-0 flex-1 items-center gap-2 text-lg font-semibold tracking-normal text-ink-900;
+  }
+
+  .card-title a,
+  .template-title a {
+    @apply min-w-0 truncate text-ink-900 hover:text-coast-700;
+  }
+
+  .card-details,
+  .template-details,
+  .location-details,
+  .weather-details {
+    @apply mt-4 grid gap-2;
+  }
+
+  .detail-item {
+    @apply flex items-center gap-2 text-sm text-ink-500;
+  }
+
+  .card-description,
+  .template-description,
+  .description-section {
+    @apply mt-4 rounded-lg border border-coast-100 bg-coast-50 p-3 text-sm leading-6 text-ink-500;
+  }
+
+  .badge,
+  .tag,
+  .template-badge,
+  .card-status,
+  .currency-code,
+  .currency-flag {
+    @apply inline-flex shrink-0 items-center rounded-lg border border-coast-200 bg-coast-50 px-2.5 py-1 text-xs font-semibold text-coast-700;
+  }
+
+  .card-status.ongoing,
+  .badge-primary,
+  .bg-primary {
+    @apply border-harbor-200 bg-harbor-50 text-harbor-700;
+  }
+
+  .card-status.completed,
+  .badge-success,
+  .bg-success {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-700;
+  }
+
+  .card-status.cancelled {
+    @apply border-rose-200 bg-rose-50 text-rose-700;
+  }
+
+  .tag-group,
+  .filter-tags,
+  .location-badges,
+  .delete-instructions,
+  .currency-display {
+    @apply flex flex-wrap gap-2;
+  }
+
+  .quick-filters,
+  .empty-state {
+    @apply mb-6 rounded-lg border border-dashed border-coast-200 bg-coast-50 p-5;
+  }
+
+  .empty-state {
+    @apply text-center;
+  }
+
+  .empty-state-icon {
+    @apply mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-white text-2xl text-coast-600;
+  }
+
+  .filter-tag {
+    @apply inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-coast-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-700 transition hover:bg-coast-50;
+  }
+
+  .alert {
+    @apply mb-4 rounded-lg border px-4 py-3 text-sm;
+  }
+
+  .alert-success {
+    @apply border-emerald-200 bg-emerald-50 text-emerald-800;
+  }
+
+  .alert-error,
+  .alert-danger {
+    @apply border-rose-200 bg-rose-50 text-rose-800;
+  }
+
+  .alert-warning {
+    @apply border-amber-200 bg-amber-50 text-amber-800;
+  }
+
+  .alert-info {
+    @apply border-harbor-200 bg-harbor-50 text-harbor-700;
+  }
+
+  .invalid-feedback {
+    @apply mt-1 text-sm text-rose-700;
+  }
+
+  .d-block {
+    @apply block;
+  }
+
+  .auth-page {
+    @apply flex min-h-screen items-center justify-center bg-coast-50 px-4 py-8;
+  }
+
+  .auth-container {
+    @apply max-w-md;
+  }
+
+  .auth-header {
+    @apply mb-6 text-center;
+  }
+
+  .auth-header h1 {
+    @apply flex items-center justify-center gap-3 text-3xl font-semibold tracking-normal text-ink-900;
+  }
+
+  .auth-header p {
+    @apply mt-2 text-sm text-ink-500;
+  }
+
+  .auth-card-title {
+    @apply mb-0 justify-center;
+  }
+
+  .auth-page .card,
+  .auth-page .card form {
+    @apply grid gap-5;
+  }
+
+  .auth-link {
+    @apply mt-5 border-t border-coast-100 pt-4 text-center text-sm text-ink-500;
+  }
+
+  .auth-link a {
+    @apply font-semibold text-coast-700 hover:text-coast-600;
+  }
+
+  .expense-list {
+    @apply mt-4 grid gap-3 border-t border-coast-100 pt-4;
+  }
+
+  .expense-entry {
+    @apply flex flex-wrap items-end gap-4 rounded-lg border border-coast-100 bg-coast-50 p-3 sm:p-4;
+  }
+
+  .planner-agent-page {
+    @apply grid gap-7;
+  }
+
+  .planner-chat-layout {
+    @apply grid min-h-0 gap-5 lg:grid-cols-[minmax(0,1fr)_18rem];
+  }
+
+  .planner-chat-section {
+    @apply grid min-h-0 gap-4;
+  }
+
+  .planner-message-list {
+    @apply grid min-h-64 max-h-[min(68vh,44rem)] content-start gap-3 overflow-y-auto overscroll-contain rounded-lg border border-coast-100 bg-coast-50 p-4;
+  }
+
+  .planner-message {
+    @apply max-w-3xl rounded-lg border border-coast-100 bg-white p-3 text-sm leading-6 text-ink-700;
+  }
+
+  .planner-message.user {
+    @apply ml-auto border-harbor-200 bg-harbor-50 text-harbor-700;
+  }
+
+  .planner-message.agent {
+    @apply border-coast-200;
+  }
+
+  .planner-card {
+    @apply grid gap-3;
+  }
+
+  .planner-card-loading {
+    @apply border border-dashed border-coast-200 rounded-lg p-3 bg-coast-50;
+  }
+
+  .planner-card-section {
+    @apply grid gap-2;
+  }
+
+  .planner-card-summary {
+    @apply text-sm leading-6 text-ink-700;
+  }
+
+  .planner-card-list {
+    @apply grid gap-1 list-disc pl-5 text-sm leading-6 text-ink-700;
+  }
+
+  .planner-card-kv {
+    @apply grid gap-2;
+  }
+
+  .planner-card-kv-row {
+    @apply grid gap-1 rounded-lg border border-coast-100 bg-coast-50 p-2;
+  }
+
+  .planner-card-kv-label {
+    @apply text-xs font-semibold uppercase tracking-normal text-ink-500;
+  }
+
+  .planner-card-kv-value {
+    @apply text-sm text-ink-700;
+  }
+
+  .planner-tool-list {
+    @apply grid gap-3;
+  }
+
+  .planner-tool-item {
+    @apply rounded-lg border border-coast-100 bg-white p-3 text-sm text-ink-700;
+  }
+
+  .planner-tool-owner {
+    @apply mt-2 inline-flex rounded-lg border border-coast-200 bg-coast-50 px-2 py-1 text-xs font-semibold text-coast-700;
+  }
+
+  .remove-btn {
+    @apply ml-auto;
+  }
+
+  .location-order-controls {
+    @apply ml-auto flex flex-wrap items-center gap-2;
+  }
+
+  .location-order-controls + .remove-btn {
+    @apply ml-0;
+  }
+
+  .route-map,
+  .route-preview-map {
+    @apply min-h-[360px] w-full overflow-hidden rounded-lg border border-coast-200 bg-coast-100;
+  }
+
+  .route-message {
+    @apply mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800;
+  }
+
+  .route-toolbar {
+    @apply mb-3 flex flex-wrap items-center gap-2;
+  }
+
+  #locations-container {
+    @apply grid gap-5;
+  }
+
+  #locations-container + .btn {
+    @apply mt-5;
+  }
+
+  .location-coordinate-row {
+    @apply grid gap-3 sm:grid-cols-3;
+  }
+
+  .current-weather-card {
+    @apply mx-auto max-w-3xl;
+  }
+
+  .weather-details {
+    @apply md:grid-cols-[180px_1fr];
+  }
+
+  .temperature-value {
+    @apply text-4xl font-semibold text-coast-700;
+  }
+
+  .weather-icon,
+  .forecast-icon {
+    @apply h-16 w-16;
+  }
+
+  .forecast-card {
+    @apply min-h-72;
+  }
+
+  .forecast-front,
+  .forecast-back {
+    @apply grid gap-2 items-center text-center justify-items-center;
+  }
+
+  .details-table th,
+  .forecast-details-table th {
+    @apply border-b border-coast-100 pb-2 text-left text-sm font-semibold text-ink-700;
+  }
+
+  .details-table td,
+  .forecast-details-table td {
+    @apply border-b border-coast-50 py-2 text-sm text-ink-500;
+  }
+
+  .calendar-container {
+    @apply grid gap-6;
+  }
+
+  .calendar-wrapper {
+    @apply overflow-x-auto rounded-lg border border-coast-200 bg-white p-4 shadow-sm;
+  }
+
+  #calendar {
+    @apply mx-auto w-full min-w-[320px] max-w-[720px] select-none overflow-hidden rounded-lg border border-coast-200 bg-white;
+  }
+
+  #calendar .header {
+    @apply relative flex h-12 items-center justify-center bg-coast-600 text-white;
+  }
+
+  #calendar .header h1 {
+    @apply text-base font-semibold tracking-normal;
+  }
+
+  #calendar .left,
+  #calendar .right {
+    @apply absolute top-1/2 h-8 w-8 -translate-y-1/2 cursor-pointer rounded-lg hover:bg-white/10;
+  }
+
+  #calendar .left {
+    @apply left-3;
+  }
+
+  #calendar .right {
+    @apply right-3;
+  }
+
+  #calendar .left::before,
+  #calendar .right::before {
+    @apply absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 border-white content-[''];
+  }
+
+  #calendar .left::before {
+    @apply border-b-2 border-l-2;
+  }
+
+  #calendar .right::before {
+    @apply border-r-2 border-t-2;
+  }
+
+  #calendar .week {
+    @apply grid grid-cols-7 border-b border-coast-100;
+  }
+
+  #calendar .day {
+    @apply min-h-20 cursor-pointer border-r border-coast-50 p-2 transition hover:bg-coast-50;
+  }
+
+  #calendar .day.other {
+    @apply bg-slate-50 text-ink-500 opacity-60;
+  }
+
+  #calendar .day.today {
+    @apply bg-coast-50 text-coast-700;
+  }
+
+  #calendar .day-name {
+    @apply text-[10px] font-semibold uppercase tracking-normal text-ink-500;
+  }
+
+  #calendar .day-number {
+    @apply mt-1 text-lg font-semibold;
+  }
+
+  #calendar .day-events {
+    @apply mt-2 flex flex-wrap gap-1;
+  }
+
+  .event-indicator,
+  .event-type {
+    @apply rounded bg-coast-600 px-1.5 py-0.5 text-[10px] font-semibold text-white;
+  }
+
+  .orange,
+  .event-indicator.orange,
+  .event-type.orange,
+  .event-category.orange,
+  .legend-color.orange {
+    @apply bg-amber-500;
+  }
+
+  .blue,
+  .event-indicator.blue,
+  .event-type.blue,
+  .event-category.blue,
+  .legend-color.blue {
+    @apply bg-harbor-500;
+  }
+
+  .green,
+  .event-indicator.green,
+  .event-type.green,
+  .event-category.green,
+  .legend-color.green {
+    @apply bg-coast-600;
+  }
+
+  .yellow,
+  .event-indicator.yellow,
+  .event-type.yellow,
+  .event-category.yellow,
+  .legend-color.yellow {
+    @apply bg-yellow-500;
+  }
+
+  #calendar .details {
+    @apply col-span-7 border-t border-coast-200 bg-coast-50 p-3;
+  }
+
+  #calendar .events {
+    @apply grid gap-2;
+  }
+
+  #calendar .event {
+    @apply flex items-center justify-between gap-3 rounded-lg border border-coast-100 bg-white px-3 py-2 text-sm text-ink-700;
+  }
+
+  #calendar .event.empty {
+    @apply justify-center bg-transparent text-ink-500;
+  }
+
+  .event-content {
+    @apply flex min-w-0 flex-1 items-center gap-2;
+  }
+
+  .event-category,
+  .legend-color {
+    @apply h-3 w-3 shrink-0 rounded-full;
+  }
+
+  .event-name {
+    @apply truncate;
+  }
+
+  .delete-btn {
+    @apply inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-rose-700 transition hover:bg-rose-50;
+  }
+
+  .my-itineraries-page,
+  .template-list-page,
+  .search-page,
+  .weather-page,
+  .exchange-page,
+  .planner-agent-page,
+  .itinerary-detail-page,
+  .create-itinerary-page,
+  .edit-itinerary-page {
+    @apply grid gap-7;
+  }
+
+  .my-itineraries-page .page-header,
+  .template-list-page .page-header,
+  .search-page .page-header,
+  .weather-page .page-header,
+  .exchange-page .page-header,
+  .planner-agent-page .page-header,
+  .itinerary-detail-page .page-header,
+  .create-itinerary-page .page-header,
+  .edit-itinerary-page .page-header {
+    @apply mb-0;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 15rem));
+  }
+
+  .itinerary-grid,
+  .templates-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
+    @apply gap-5;
+  }
+
+  .itinerary-card,
+  .template-card {
+    @apply flex min-h-80 flex-col gap-5 p-4 sm:p-5;
+  }
+
+  .location-card,
+  .location-entry,
+  .current-weather-card,
+  .forecast-card,
+  .itinerary-overview,
+  .locations-section,
+  .tags-section,
+  .quick-filters,
+  .result-section,
+  .info-section,
+  .delete-section,
+  .legend-section {
+    @apply grid gap-5;
+  }
+
+  .quick-filters h6 {
+    @apply mb-0 flex items-center gap-2 text-sm font-semibold text-ink-700;
+  }
+
+  .results-section,
+  .current-weather-section,
+  .forecast-section {
+    @apply grid gap-5;
+  }
+
+  .results-header {
+    @apply mb-0;
+  }
+
+  .itinerary-card .card-header,
+  .template-card .template-header {
+    @apply border-b border-coast-100 pb-4;
+  }
+
+  .itinerary-card .card-title,
+  .template-card .template-title {
+    @apply mb-0;
+  }
+
+  .itinerary-card .card-details,
+  .template-card .template-details {
+    @apply mt-0 gap-3;
+  }
+
+  .itinerary-card .card-description,
+  .template-card .template-description {
+    @apply mt-0;
+  }
+
+  .itinerary-card .card-actions,
+  .template-card .template-actions {
+    @apply mt-auto;
+  }
+
+  .stat-number {
+    @apply text-3xl font-semibold leading-none text-coast-700;
+  }
+
+  .stat-label,
+  .overview-label {
+    @apply mt-2 text-sm font-medium text-ink-500;
+  }
+
+  .overview-icon {
+    @apply mb-3 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-coast-50 text-xl text-coast-700;
+  }
+
+  .overview-value {
+    @apply mt-1 text-base font-semibold text-ink-900;
+  }
+
+  .empty-state h3,
+  .empty-state h4 {
+    @apply mb-2 text-lg font-semibold text-ink-900;
+  }
+
+  .empty-state p {
+    @apply mb-5 text-sm text-ink-500;
+  }
+
+  @media (max-width: 640px) {
+    .card-actions,
+    .template-actions,
+    .actions-section,
+    .action-buttons,
+    .submit-section {
+      @apply flex-col items-stretch;
+    }
+
+    .btn,
+    .search-button,
+    .convert-button,
+    .add-event-btn {
+      @apply w-full;
+    }
+  }
+}
