@@ -1,0 +1,256 @@
+{% extends "common/base.html" %}
+{% load static %}
+
+{% block title %}編輯行程{% endblock %}
+
+{% block styles %}
+ <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css">
+{% endblock %}
+
+{% block content %}
+<div class="edit-itinerary-page">
+    <h2 class="page-header">
+        <i class="ri-edit-line"></i>
+        編輯旅遊行程
+    </h2>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}" role="alert">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+
+        <div class="form-section">
+            <h5 class="section-title">
+                <i class="ri-information-line"></i>
+                基本資訊
+            </h5>
+            <div class="basic-info-grid">
+                {{ form.as_p }}
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h5 class="section-title">
+                <i class="ri-map-pin-line"></i>
+                地點與支出
+            </h5>
+
+            <div id="locations-container">
+                {% for location in locations %}
+                <div class="location-entry" data-location-entry>
+                    <div class="location-header">
+                        <h6 class="location-name">
+                            <i class="ri-map-pin-2-line"></i>
+                            地點
+                        </h6>
+                        <div class="location-order-controls" aria-label="調整地點順序">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-location-move="up" onclick="moveLocation(this, 'up')" aria-label="上移地點">
+                                <i class="ri-arrow-up-line"></i>
+                                上移
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-location-move="down" onclick="moveLocation(this, 'down')" aria-label="下移地點">
+                                <i class="ri-arrow-down-line"></i>
+                                下移
+                            </button>
+                        </div>
+                        <button type="button" class="btn btn-outline-danger btn-sm remove-btn" onclick="removeLocation(this)">
+                            <i class="ri-close-line"></i>
+                            移除
+                        </button>
+                    </div>
+
+                    <div class="input-group">
+                        <div class="form-group">
+                            <label class="form-label" for="location_name_{{ forloop.counter0 }}">
+                                <i class="ri-map-pin-2-line"></i>
+                                地點名稱
+                            </label>
+                            <input type="text" name="location_name[]" class="form-control" id="location_name_{{ forloop.counter0 }}" value="{{ location.name }}">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="travel_method_{{ forloop.counter0 }}">
+                                <i class="ri-road-map-line"></i>
+                                旅遊方式
+                            </label>
+                            <select name="travel_method[]" class="form-select" id="travel_method_{{ forloop.counter0 }}">
+                                <option value="">選擇方式</option>
+                                <option value="walk" {% if location.travel_method == "walk" %}selected{% endif %}>步行</option>
+                                <option value="car" {% if location.travel_method == "car" %}selected{% endif %}>開車</option>
+                                <option value="plane" {% if location.travel_method == "plane" %}selected{% endif %}>搭飛機</option>
+                                <option value="boat" {% if location.travel_method == "boat" %}selected{% endif %}>搭船</option>
+                                <option value="train" {% if location.travel_method == "train" %}selected{% endif %}>搭火車</option>
+                                <option value="bus" {% if location.travel_method == "bus" %}selected{% endif %}>搭巴士</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="transport_note_{{ forloop.counter0 }}">
+                                <i class="ri-sticky-note-line"></i>
+                                交通備註
+                            </label>
+                            <input type="text" name="transport_note[]" class="form-control" id="transport_note_{{ forloop.counter0 }}" value="{{ location.note }}">
+                        </div>
+                    </div>
+
+                    <div class="location-coordinate-row">
+                        <div class="form-group">
+                            <label class="form-label" for="visit_date_{{ forloop.counter0 }}">
+                                <i class="ri-calendar-line"></i>
+                                造訪日期
+                            </label>
+                            <input type="datetime-local" name="visit_date[]" class="form-control" id="visit_date_{{ forloop.counter0 }}" value="{{ location.visit_date|date:'Y-m-d\TH:i' }}">
+                        </div>
+                        <input type="hidden" name="location_latitude[]" value="{{ location.latitude }}">
+                        <input type="hidden" name="location_longitude[]" value="{{ location.longitude }}">
+                        <input type="hidden" name="route_order[]" value="{{ location.route_order }}">
+                    </div>
+
+                    <div class="expense-list">
+                        <div class="expense-header">
+                            <h6 class="expenses-title">
+                                <i class="ri-wallet-3-line"></i>
+                                支出記錄
+                            </h6>
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="addExpense(this)">
+                                <i class="ri-add-line"></i>
+                                新增支出
+                            </button>
+                        </div>
+
+                        {% for expense in location.expenses.all %}
+                        <div class="expense-entry">
+                            <div class="flex-1 min-w-32">
+                                <label class="form-label" for="expense_type_{{ forloop.parentloop.counter0 }}[]">支出類型</label>
+                                <select data-expense-type name="expense_type_{{ forloop.parentloop.counter0 }}[]" class="form-select form-select-sm" id="expense_type_{{ forloop.parentloop.counter0 }}[]">
+                                    <option value="meal" {% if expense.expense_type == "meal" %}selected{% endif %}>餐飲</option>
+                                    <option value="lodging" {% if expense.expense_type == "lodging" %}selected{% endif %}>住宿</option>
+                                    <option value="transport" {% if expense.expense_type == "transport" %}selected{% endif %}>交通</option>
+                                    <option value="ticket" {% if expense.expense_type == "ticket" %}selected{% endif %}>門票</option>
+                                    <option value="shopping" {% if expense.expense_type == "shopping" %}selected{% endif %}>購物</option>
+                                    <option value="other" {% if expense.expense_type == "other" %}selected{% endif %}>其他</option>
+                                </select>
+                            </div>
+                            <div class="flex-1 min-w-32">
+                                <label class="form-label" for="expense_amount_{{ forloop.parentloop.counter0 }}[]">金額</label>
+                                <input data-expense-amount type="number" step="0.01" name="expense_amount_{{ forloop.parentloop.counter0 }}[]" class="form-control form-control-sm" id="expense_amount_{{ forloop.parentloop.counter0 }}[]" value="{{ expense.amount }}">
+                            </div>
+                            <button type="button" class="btn btn-outline-danger btn-sm remove-expense-btn" onclick="this.closest('.expense-entry').remove()">
+                                <i class="ri-delete-bin-line"></i>
+                                移除
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% empty %}
+                <div class="location-entry" data-location-entry>
+                    <div class="location-header">
+                        <h6 class="location-name">
+                            <i class="ri-map-pin-2-line"></i>
+                            地點
+                        </h6>
+                        <div class="location-order-controls" aria-label="調整地點順序">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-location-move="up" onclick="moveLocation(this, 'up')" aria-label="上移地點">
+                                <i class="ri-arrow-up-line"></i>
+                                上移
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-location-move="down" onclick="moveLocation(this, 'down')" aria-label="下移地點">
+                                <i class="ri-arrow-down-line"></i>
+                                下移
+                            </button>
+                        </div>
+                        <button type="button" class="btn btn-outline-danger btn-sm remove-btn" onclick="removeLocation(this)">
+                            <i class="ri-close-line"></i>
+                            移除
+                        </button>
+                    </div>
+                    <div class="input-group">
+                        <div class="form-group">
+                            <label class="form-label" for="location_name_{{ forloop.counter0 }}"><i class="ri-map-pin-2-line"></i>地點名稱</label>
+                            <input type="text" name="location_name[]" class="form-control" id="location_name_{{ forloop.counter0 }}">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="travel_method_{{ forloop.counter0 }}"><i class="ri-road-map-line"></i>旅遊方式</label>
+                            <select name="travel_method[]" class="form-select" id="travel_method_{{ forloop.counter0 }}">
+                                <option value="">選擇方式</option>
+                                <option value="walk">步行</option>
+                                <option value="car">開車</option>
+                                <option value="plane">搭飛機</option>
+                                <option value="boat">搭船</option>
+                                <option value="train">搭火車</option>
+                                <option value="bus">搭巴士</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="transport_note_{{ forloop.counter0 }}"><i class="ri-sticky-note-line"></i>交通備註</label>
+                            <input type="text" name="transport_note[]" class="form-control" id="transport_note_{{ forloop.counter0 }}">
+                        </div>
+                    </div>
+                    <div class="location-coordinate-row">
+                        <div class="form-group">
+                            <label class="form-label" for="visit_date_{{ forloop.counter0 }}"><i class="ri-calendar-line"></i>造訪日期</label>
+                            <input type="datetime-local" name="visit_date[]" class="form-control" id="visit_date_{{ forloop.counter0 }}">
+                        </div>
+                        <input type="hidden" name="location_latitude[]" value="">
+                        <input type="hidden" name="location_longitude[]" value="">
+                        <input type="hidden" name="route_order[]" value="0">
+                    </div>
+                    <div class="expense-list">
+                        <div class="expense-header">
+                            <h6 class="expenses-title"><i class="ri-wallet-3-line"></i>支出記錄</h6>
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="addExpense(this)">
+                                <i class="ri-add-line"></i>
+                                新增支出
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <button type="button" class="btn btn-outline-secondary" onclick="addLocation()">
+                <i class="ri-add-circle-line"></i>
+                新增地點
+            </button>
+        </div>
+
+        <div class="route-section" data-route-editor data-routing-service-url="{{ routing_service_url|default:'' }}" data-routing-profile="{{ routing_profile|default:'driving' }}">
+            <h5 class="section-title">
+                <i class="ri-route-line"></i>
+                旅遊路線
+            </h5>
+            <div class="route-map" data-route-map></div>
+            <div class="route-message" data-route-message hidden></div>
+        </div>
+
+        <div class="action-buttons">
+            <button type="submit" class="btn btn-primary">
+                <i class="ri-save-line"></i>
+                儲存修改
+            </button>
+            <a href="{% url 'my_itineraries' %}" class="btn btn-secondary">
+                <i class="ri-arrow-left-line"></i>
+                取消返回
+            </a>
+        </div>
+    </form>
+</div>
+
+ <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+<script src="{% static 'itinerary/js/route_editor.js' %}" defer></script>
+{% endblock content %}

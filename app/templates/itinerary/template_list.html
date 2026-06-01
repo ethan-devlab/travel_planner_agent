@@ -1,0 +1,105 @@
+{% extends "common/base.html" %}
+{% load static %}
+
+{% block title %}公共模板{% endblock %}
+
+{% block content %}
+<div class="template-list-page">
+    <h2 class="page-header">
+        <i class="ri-layout-grid-line"></i>
+        公共行程模板
+    </h2>
+    
+    <div class="templates-intro">
+        <p class="intro-text">
+            <i class="ri-lightbulb-line"></i>
+            探索由社群分享的精彩行程模板，為你的旅程提供靈感！
+        </p>
+    </div>
+
+    {% if templates %}
+    <div class="templates-grid">
+        {% for item in templates %}
+        <div class="template-card">
+            <div class="template-header">
+                <h5 class="template-title">
+                    <i class="ri-map-2-line"></i>
+                    <a href="{% url 'itinerary_detail' item.id %}">
+                        {{ item.title }}
+                    </a>
+                </h5>
+                <span class="template-badge">公共模板</span>
+            </div>
+            
+            <div class="template-details">
+                <div class="detail-item">
+                    <i class="ri-calendar-line"></i>
+                    <span>{{ item.start_date }} ~ {{ item.end_date }}</span>
+                </div>
+                <div class="detail-item">
+                    <i class="ri-money-dollar-circle-line"></i>
+                    <span>預算：${{ item.budget|default:"未設定" }}</span>
+                </div>
+                <div class="detail-item">
+                    <i class="ri-map-pin-line"></i>
+                    <span>{{ item.locations.count|default:0 }} 個地點</span>
+                </div>
+                <div class="detail-item">
+                    <i class="ri-user-line"></i>
+                    <span>由 {{ item.owner.username|default:"匿名用戶" }} 分享</span>
+                </div>
+            </div>
+
+            {% if item.description %}
+            <div class="template-description">
+                <i class="ri-file-text-line"></i>
+                {{ item.description|truncatewords:20 }}
+            </div>
+            {% endif %}
+
+            {% if item.tags.all %}
+            <div class="tag-group">
+                {% for tag in item.tags.all %}
+                <span class="tag">{{ tag.name }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="template-actions">
+                <a href="{% url 'itinerary_detail' item.id %}" class="btn btn-outline-primary">
+                    <i class="ri-eye-line"></i>
+                    查看詳情
+                </a>
+                {% if user.is_authenticated and item.owner.username == user.username %}
+                <a href="{% url 'edit_itinerary' item.id %}" class="btn btn-primary">
+                    <i class="ri-edit-line"></i>
+                    編輯行程
+                </a>
+                {% elif user.is_authenticated %}
+                <form action="/copy/" method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="itinerary_id" value="{{ item.id }}">
+                    <input type="hidden" name="owner_username" value="{{ item.owner.username }}">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="ri-file-copy-line"></i>
+                        使用此模板
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon"><i class="ri-layout-grid-line"></i></div>
+        <h3>目前沒有可用的公共模板</h3>
+        <p>成為第一個分享行程模板的用戶吧！</p>
+        <a href="{% url 'create' %}" class="btn btn-primary">
+            <i class="ri-add-line"></i>
+            創建第一個模板
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

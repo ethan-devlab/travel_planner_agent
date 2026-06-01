@@ -1,0 +1,107 @@
+{
+    "USD": {
+        "code": "USD",
+        "name": "美元",
+        "flag": "USD"
+    },
+    "EUR": {
+        "code": "EUR",
+        "name": "歐元",
+        "flag": "EUR"
+    },
+    "GBP": {
+        "code": "GBP",
+        "name": "英鎊",
+        "flag": "GBP"
+    },
+    "JPY": {
+        "code": "JPY",
+        "name": "日圓",
+        "flag": "JPY"
+    },
+    "AUD": {
+        "code": "AUD",
+        "name": "澳幣",
+        "flag": "AUD"
+    },
+    "CAD": {
+        "code": "CAD",
+        "name": "加幣",
+        "flag": "CAD"
+    },
+    "CHF": {
+        "code": "CHF",
+        "name": "瑞士法郎",
+        "flag": "CHF"
+    },
+    "CNY": {
+        "code": "CNY",
+        "name": "人民幣",
+        "flag": "CNY"
+    },
+    "SEK": {
+        "code": "SEK",
+        "name": "瑞典克朗",
+        "flag": "SEK"
+    },
+    "NZD": {
+        "code": "NZD",
+        "name": "紐幣",
+        "flag": "NZD"
+    },
+    "TWD": {
+        "code": "TWD",
+        "name": "新台幣",
+        "flag": "TWD"
+    },
+    "HKD": {
+        "code": "HKD",
+        "name": "港幣",
+        "flag": "HKD"
+    },
+    "SGD": {
+        "code": "SGD",
+        "name": "新幣",
+        "flag": "SGD"
+    },
+    "KRW": {
+        "code": "KRW",
+        "name": "韓圓",
+        "flag": "KRW"
+    },
+    "INR": {
+        "code": "INR",
+        "name": "印度盧比",
+        "flag": "INR"
+    },
+    "MXN": {
+        "code": "MXN",
+        "name": "墨西哥披索",
+        "flag": "MXN"
+    },
+    "MYR": {
+        "code": "MYR",
+        "name": "令吉",
+        "flag": "MYR"
+    },
+    "RUB": {
+        "code": "RUB",
+        "name": "俄羅斯盧布",
+        "flag": "RUB"
+    },
+    "ZAR": {
+        "code": "ZAR",
+        "name": "南非幣",
+        "flag": "ZAR"
+    },
+    "BRL": {
+        "code": "BRL",
+        "name": "巴西幣",
+        "flag": "BRL"
+    },
+    "TRY": {
+        "code": "TRY",
+        "name": "土耳其里拉",
+        "flag": "TRY"
+    }
+}

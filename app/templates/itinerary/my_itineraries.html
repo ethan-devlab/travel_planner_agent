@@ -1,0 +1,15 @@
+{% extends "common/base.html" %}
+{% load static %}
+
+{% block title %}我的行程{% endblock %}
+
+{% block content %}
+<div class="my-itineraries-page">
+    <h2 class="page-header">
+        <i class="ri-folder-map-line"></i>
+        我的旅遊行程
+    </h2>
+
+    {% include "itinerary/_itinerary_grid.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,8 @@
+[tool.sonar]
+# Local SonarQube connection settings used by pysonar. See more on https://github.com/SonarSource/sonar-scanner-python/blob/master/CLI_ARGS.md
+host.url = "http://localhost:9000"
+token = "<SONAR_TOKEN>"
+projectKey = "travel-planning-project-key"
+projectName = "travelplanning"
+python.version = "<YOUR_PYTHON_VERSION>"
+python.coverage.reportPaths = "coverage.xml"

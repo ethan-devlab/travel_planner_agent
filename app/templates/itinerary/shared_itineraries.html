@@ -1,0 +1,15 @@
+{% extends "common/base.html" %}
+{% load static %}
+
+{% block title %}與我協作{% endblock %}
+
+{% block content %}
+<div class="my-itineraries-page">
+    <h2 class="page-header">
+        <i class="ri-team-line"></i>
+        與我協作的行程
+    </h2>
+
+    {% include "itinerary/_itinerary_grid.html" with show_owner=True %}
+</div>
+{% endblock %}

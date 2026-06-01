@@ -1,0 +1,82 @@
+{% if itineraries %}
+<div class="stats-section">
+    <div class="stats-grid">
+        <div class="stat-item">
+            <div class="stat-number">{{ itineraries|length }}</div>
+            <div class="stat-label">總行程數</div>
+        </div>
+    </div>
+</div>
+
+<div class="itinerary-grid">
+    {% for item in itineraries %}
+    <div class="itinerary-card">
+        <div class="card-header">
+            <h5 class="card-title">
+                <i class="ri-map-2-line"></i>
+                <a href="{% url 'itinerary_detail' item.id %}">{{ item.title }}</a>
+            </h5>
+            {% if item.status|lower == 'draft' %}
+                <span class="card-status draft">草稿</span>
+            {% elif item.status|lower == 'ongoing' %}
+                <span class="card-status ongoing">進行中</span>
+            {% elif item.status|lower == 'completed' %}
+                <span class="card-status completed">已完成</span>
+            {% elif item.status|lower == 'cancelled' %}
+                <span class="card-status cancelled">取消</span>
+            {% endif %}
+        </div>
+
+        <div class="card-details">
+            <div class="detail-item">
+                <i class="ri-calendar-line"></i>
+                <span>{{ item.start_date }} ~ {{ item.end_date }}</span>
+            </div>
+            <div class="detail-item">
+                <i class="ri-money-dollar-circle-line"></i>
+                <span>預算：${{ item.budget|default:"未設定" }}</span>
+            </div>
+            <div class="detail-item">
+                <i class="ri-map-pin-line"></i>
+                <span>{{ item.locations.count|default:0 }} 個地點</span>
+            </div>
+            {% if show_owner %}
+            <div class="detail-item">
+                <i class="ri-user-line"></i>
+                <span>由 {{ item.owner.username|default:"匿名用戶" }} 共享</span>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if item.description %}
+        <div class="card-description">
+            <i class="ri-file-text-line"></i>
+            {{ item.description|truncatechars:15 }}
+        </div>
+        {% endif %}
+
+        <div class="card-actions">
+            <a href="{% url 'edit_itinerary' item.id %}" class="btn btn-outline-primary">
+                <i class="ri-edit-line"></i>
+                編輯
+            </a>
+            <a href="{% url 'delete_itinerary' item.id %}" class="btn btn-outline-danger"
+               onclick="return confirm('確定要刪除「{{ item.title }}」這個行程嗎？')">
+                <i class="ri-delete-bin-line"></i>
+                刪除
+            </a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-state-icon"><i class="ri-map-2-line"></i></div>
+    <h3>還沒有任何行程</h3>
+    <p>開始規劃你的第一個旅遊行程吧！</p>
+    <a href="{% url 'create' %}" class="btn btn-primary">
+        <i class="ri-add-line"></i>
+        建立第一個行程
+    </a>
+</div>
+{% endif %}

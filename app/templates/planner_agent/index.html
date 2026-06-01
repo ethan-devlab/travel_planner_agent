@@ -1,0 +1,265 @@
+{% extends "common/base.html" %}
+
+{% block title %}planner agent{% endblock %}
+
+{% block content %}
+<div class="planner-agent-page">
+    <h2 class="page-header">
+        <i class="ri-robot-2-line"></i>
+        planner agent
+    </h2>
+
+    <div class="planner-chat-layout">
+        <section class="planner-chat-section">
+            <h5 class="section-title">
+                <i class="ri-chat-3-line"></i>
+                Agent chat
+            </h5>
+
+            <div class="planner-message-list" id="planner-message-list" aria-live="polite">
+                {% if chat_history %}
+                    {% for message in chat_history %}
+                        <div class="planner-message user">{{ message.user }}</div>
+                        <div class="planner-message agent">{{ message.assistant }}</div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state" id="planner-empty-state">
+                        <div class="empty-state-icon"><i class="ri-robot-2-line"></i></div>
+                        <p>Planner agent is ready.</p>
+                    </div>
+                {% endif %}
+            </div>
+
+            <form method="post" action="{% url 'planner_agent' %}" class="mt-5 grid gap-4" id="planner-agent-form" data-stream-url="{% url 'planner_agent_stream' %}">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label class="form-label" for="planner-agent-prompt">
+                        <i class="ri-message-3-line"></i>
+                        Prompt
+                    </label>
+                    <textarea id="planner-agent-prompt" name="prompt" class="form-control" rows="5"></textarea>
+                </div>
+                <div class="submit-section">
+                    <button type="submit" class="btn btn-primary" id="planner-agent-submit">
+                        <i class="ri-send-plane-line"></i>
+                        Send
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <aside class="planner-scope-section">
+            <h5 class="section-title">
+                <i class="ri-tools-line"></i>
+                Tool groups
+            </h5>
+            <div class="planner-tool-list">
+                {% for group in tool_groups %}
+                    <div class="planner-tool-item">
+                        <strong>{{ group.name }}</strong>
+                        <div class="planner-tool-owner">{{ group.owner }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+        </aside>
+    </div>
+</div>
+
+<script>
+    const plannerForm = document.getElementById('planner-agent-form');
+    const plannerPrompt = document.getElementById('planner-agent-prompt');
+    const plannerSubmit = document.getElementById('planner-agent-submit');
+    const plannerMessages = document.getElementById('planner-message-list');
+    const defaultErrorSummary = 'Planner agent could not complete the request safely. Please try again later.';
+
+    function appendPlannerMessage(role, text) {
+        const emptyState = document.getElementById('planner-empty-state');
+        if (emptyState) {
+            emptyState.remove();
+        }
+
+        const message = document.createElement('div');
+        message.className = `planner-message ${role}`;
+        message.textContent = text;
+        plannerMessages.appendChild(message);
+        plannerMessages.scrollTop = plannerMessages.scrollHeight;
+        return message;
+    }
+
+    function appendPlannerLoadingCard() {
+        const message = appendPlannerMessage('agent', '');
+        message.innerHTML = `
+            <div class="planner-card planner-card-loading">
+                <div class="planner-card-section">
+                    <strong>整理中</strong>
+                    <p class="planner-card-summary">Planner agent 正在整理結構化回覆...</p>
+                </div>
+            </div>
+        `;
+        return message;
+    }
+
+    function normalizePlannerCardPayload(payload) {
+        const card = (payload && typeof payload === 'object') ? payload : {};
+        const summary = String(card.summary || '').trim() || defaultErrorSummary;
+        const actions = Array.isArray(card.actions) ? card.actions.map((item) => String(item || '').trim()).filter(Boolean) : [];
+        const nextSteps = Array.isArray(card.next_steps) ? card.next_steps.map((item) => String(item || '').trim()).filter(Boolean) : [];
+        const keyData = Array.isArray(card.key_data)
+            ? card.key_data
+                .map((item) => ({
+                    label: String(item?.label || '').trim(),
+                    value: String(item?.value || '').trim()
+                }))
+                .filter((item) => item.label && item.value)
+            : [];
+
+        return {
+            summary: summary,
+            actions: actions,
+            keyData: keyData,
+            nextSteps: nextSteps
+        };
+    }
+
+    function escapePlannerHtml(text) {
+        return String(text || '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function renderPlannerCard(agentMessage, payload) {
+        const card = normalizePlannerCardPayload(payload);
+        const actionItems = card.actions.map((item) => `<li>${escapePlannerHtml(item)}</li>`).join('');
+        const nextStepItems = card.nextSteps.map((item) => `<li>${escapePlannerHtml(item)}</li>`).join('');
+        const keyDataRows = card.keyData
+            .map((item) => `
+                <div class="planner-card-kv-row">
+                    <span class="planner-card-kv-label">${escapePlannerHtml(item.label)}</span>
+                    <span class="planner-card-kv-value">${escapePlannerHtml(item.value)}</span>
+                </div>
+            `)
+            .join('');
+
+        agentMessage.innerHTML = `
+            <div class="planner-card">
+                <div class="planner-card-section">
+                    <strong>摘要</strong>
+                    <p class="planner-card-summary">${escapePlannerHtml(card.summary)}</p>
+                </div>
+                ${actionItems ? `
+                    <div class="planner-card-section">
+                        <strong>動作</strong>
+                        <ul class="planner-card-list">${actionItems}</ul>
+                    </div>
+                ` : ''}
+                ${keyDataRows ? `
+                    <div class="planner-card-section">
+                        <strong>重點資料</strong>
+                        <div class="planner-card-kv">${keyDataRows}</div>
+                    </div>
+                ` : ''}
+                ${nextStepItems ? `
+                    <div class="planner-card-section">
+                        <strong>下一步</strong>
+                        <ul class="planner-card-list">${nextStepItems}</ul>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
+    function parsePlannerEvent(eventText) {
+        const lines = eventText.split('\n');
+        let eventName = 'message';
+        const dataLines = [];
+        for (const line of lines) {
+            if (line.startsWith('event:')) {
+                eventName = line.slice(6).trim() || 'message';
+            } else if (line.startsWith('data:')) {
+                dataLines.push(line.slice(5).trimStart());
+            }
+        }
+        return {
+            name: eventName,
+            data: dataLines.join('\n')
+        };
+    }
+
+    plannerForm.addEventListener('submit', async function(event) {
+        event.preventDefault();
+        const prompt = plannerPrompt.value.trim();
+        if (!prompt) {
+            return;
+        }
+
+        appendPlannerMessage('user', prompt);
+        const agentMessage = appendPlannerLoadingCard();
+        const formData = new FormData(plannerForm);
+        formData.set('prompt', prompt);
+        plannerPrompt.value = '';
+        plannerSubmit.disabled = true;
+
+        try {
+            const response = await fetch(plannerForm.dataset.streamUrl, {
+                method: 'POST',
+                body: formData,
+                headers: {'X-Requested-With': 'XMLHttpRequest'}
+            });
+
+            if (!response.ok || !response.body) {
+                renderPlannerCard(agentMessage, {summary: defaultErrorSummary});
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) {
+                    break;
+                }
+                buffer += decoder.decode(value, {stream: true});
+                buffer = renderPlannerEvents(buffer, agentMessage);
+                plannerMessages.scrollTop = plannerMessages.scrollHeight;
+            }
+            buffer += decoder.decode();
+            renderPlannerEvents(buffer, agentMessage);
+        } catch (error) {
+            renderPlannerCard(agentMessage, {summary: defaultErrorSummary});
+        } finally {
+            plannerSubmit.disabled = false;
+            plannerPrompt.focus();
+        }
+    });
+
+    function renderPlannerEvents(buffer, agentMessage) {
+        const events = buffer.split('\n\n');
+        const remaining = events.pop() || '';
+        for (const eventText of events) {
+            const parsedEvent = parsePlannerEvent(eventText);
+            if (!parsedEvent.data) {
+                continue;
+            }
+
+            if (parsedEvent.name === 'result') {
+                try {
+                    const payload = JSON.parse(parsedEvent.data);
+                    renderPlannerCard(agentMessage, payload);
+                } catch (error) {
+                    renderPlannerCard(agentMessage, {summary: parsedEvent.data});
+                }
+                continue;
+            }
+
+            if (parsedEvent.name === 'done' || parsedEvent.name === 'token') {
+                continue;
+            }
+        }
+        return remaining;
+    }
+</script>
+{% endblock content %}

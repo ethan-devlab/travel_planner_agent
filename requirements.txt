@@ -1,0 +1,10 @@
+asgiref
+Django
+sqlparse
+python-dotenv
+requests
+coverage
+pytest
+langchain>=1.0
+langchain-openai
+pydantic

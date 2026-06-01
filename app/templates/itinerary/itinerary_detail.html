@@ -1,0 +1,207 @@
+{% extends "common/base.html" %}
+{% load static %}
+
+{% block title %}{{ itinerary.title }}{% endblock %}
+
+{% block styles %}
+ <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css">
+{% endblock %}
+
+{% block content %}
+<div class="itinerary-detail-page">
+    <h2 class="page-header">
+        <i class="ri-map-2-line"></i>
+        {{ itinerary.title }}
+    </h2>
+
+    <div class="itinerary-overview">
+        <div class="overview-grid">
+            <div class="overview-item">
+                <div class="overview-icon"><i class="ri-calendar-line"></i></div>
+                <div class="overview-label">行程期間</div>
+                <div class="overview-value">
+                    {{ itinerary.start_date }} 至 {{ itinerary.end_date }}
+                </div>
+            </div>
+            <div class="overview-item">
+                <div class="overview-icon"><i class="ri-wallet-3-line"></i></div>
+                <div class="overview-label">總預算</div>
+                <div class="overview-value">${{ itinerary.budget|default:"未設定" }}</div>
+            </div>
+            <div class="overview-item">
+                <div class="overview-icon"><i class="ri-map-pin-line"></i></div>
+                <div class="overview-label">地點數量</div>
+                <div class="overview-value">{{ itinerary.locations.count }} 個地點</div>
+            </div>
+            <div class="overview-item">
+                <div class="overview-icon"><i class="ri-user-line"></i></div>
+                <div class="overview-label">創建者</div>
+                <div class="overview-value">{{ itinerary.owner.username|default:"匿名" }}</div>
+            </div>
+        </div>
+
+        {% if itinerary.description %}
+        <div class="description-section">
+            <h6 class="section-title">
+                <i class="ri-file-text-line"></i>
+                行程描述
+            </h6>
+            <p class="description-text">{{ itinerary.description }}</p>
+        </div>
+        {% endif %}
+
+        {% if itinerary.collaborators.all %}
+        <div class="description-section">
+            <h6 class="section-title">
+                <i class="ri-team-line"></i>
+                協作者
+            </h6>
+            <p class="description-text">
+                {% for collaborator in itinerary.collaborators.all %}
+                    {{ collaborator.username }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+            </p>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon"><i class="ri-team-line"></i></div>
+            <p>此行程尚未添加協作者</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="route-section" data-route-preview data-route-data-id="route-waypoints-data" data-routing-service-url="{{ routing_service_url|default:'' }}" data-routing-profile="{{ routing_profile|default:'driving' }}">
+        <h5 class="section-title">
+            <i class="ri-route-line"></i>
+            旅遊路線
+        </h5>
+        <div class="route-preview-map" data-route-map></div>
+        <div class="route-message" data-route-message hidden></div>
+    </div>
+    {{ route_waypoints|json_script:"route-waypoints-data" }}
+
+    <div class="locations-section">
+        <h5 class="section-title">
+            <i class="ri-map-pin-line"></i>
+            行程地點與支出
+        </h5>
+
+        {% if itinerary.locations.all %}
+            {% for loc in itinerary.locations.all %}
+            <div class="location-card">
+                <div class="location-header">
+                    <h5 class="location-name">
+                        <i class="ri-map-pin-2-line"></i>
+                        {{ loc.name }}
+                    </h5>
+                    <div class="location-badges">
+                        <span class="badge badge-primary">{{ loc.get_travel_method_display }}</span>
+                        {% if loc.note %}
+                        <span class="badge badge-info">{{ loc.note }}</span>
+                        {% endif %}
+                        <span class="badge badge-secondary">{{ loc.visit_date|date:"m/d H:i" }}</span>
+                    </div>
+                </div>
+
+                <div class="location-details">
+                    <div class="detail-item">
+                        <i class="ri-calendar-line"></i>
+                        <span>造訪時間：{{ loc.visit_date|date:"Y年m月d日 H:i" }}</span>
+                    </div>
+                    {% if loc.note %}
+                    <div class="detail-item">
+                        <i class="ri-sticky-note-line"></i>
+                        <span>交通備註：{{ loc.note }}</span>
+                    </div>
+                    {% endif %}
+                    {% if loc.latitude or loc.longitude %}
+                    <div class="detail-item">
+                        <i class="ri-compass-3-line"></i>
+                        <span>{{ loc.latitude|floatformat:5 }}, {{ loc.longitude|floatformat:5 }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="expenses-section">
+                    <h6 class="expenses-title">
+                        <i class="ri-wallet-3-line"></i>
+                        支出明細
+                    </h6>
+                    {% if loc.expenses.all %}
+                    <div class="expense-list">
+                        {% for exp in loc.expenses.all %}
+                        <div class="expense-item detail-item">
+                            <span class="expense-type">{{ exp.get_expense_type_display }}</span>
+                            <span class="expense-amount">${{ exp.amount }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="empty-state">
+                        <div class="empty-state-icon"><i class="ri-wallet-3-line"></i></div>
+                        <p>此地點尚未記錄支出</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon"><i class="ri-map-pin-line"></i></div>
+            <p>此行程尚未設定地點資訊</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="tags-section">
+        <h5 class="section-title">
+            <i class="ri-price-tag-3-line"></i>
+            行程標籤
+        </h5>
+        {% if itinerary.tags.all %}
+        <div class="tag-group">
+            {% for tag in itinerary.tags.all %}
+            <span class="tag">{{ tag.name }}</span>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon"><i class="ri-price-tag-3-line"></i></div>
+            <p>此行程尚未添加標籤</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="actions-section">
+        <a href="{% url 'search' %}" class="btn btn-outline-secondary">
+            <i class="ri-arrow-left-line"></i>
+            返回搜尋
+        </a>
+        {% if user.is_authenticated and itinerary.owner.username == user.username %}
+        <a href="{% url 'edit_itinerary' itinerary.id %}" class="btn btn-primary">
+            <i class="ri-edit-line"></i>
+            編輯行程
+        </a>
+        {% elif user.is_authenticated %}
+        <form action="/copy/" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="itinerary_id" value="{{ itinerary.id }}">
+            <input type="hidden" name="owner_username" value="{{ itinerary.owner.username }}">
+            <button type="submit" class="btn btn-primary">
+                <i class="ri-file-copy-line"></i>
+                使用此模板
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+ <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+<script src="{% static 'itinerary/js/route_preview.js' %}" defer></script>
+{% endblock %}
