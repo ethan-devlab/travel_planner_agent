@@ -8,3 +8,4 @@ pytest
 langchain>=1.0
 langchain-openai
 pydantic
+ipaddress
