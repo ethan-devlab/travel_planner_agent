@@ -13,7 +13,7 @@ import json
 import logging
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv("env/.env")
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,12 @@ def exchange_view(request):
             rate = get_exchange_rate(from_currency, to_currency)
             if isinstance(rate, Exception):
                 messages.error(request, rate.args[0])
+                return render(request, template, {
+                    'currencies': currencies.values(),
+                    'from': currencies.get(from_currency),
+                    'to': currencies.get(to_currency),
+                    'result': None,
+                })
             converted = amount * rate
             result = f"{amount} {from_currency} = {converted:.2f} {to_currency}"
         except Exception as e:

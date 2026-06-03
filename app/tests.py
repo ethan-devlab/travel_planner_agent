@@ -1344,6 +1344,203 @@ class ItineraryTemplateViewTests(TestCase):
         self.assertEqual(response.url, reverse('template_list'))
 
 
+class OwnerCTravelContextToolTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='owner-c-user', password='password123')
+        self.client.login(username='owner-c-user', password='password123')
+
+    def test_lookup_weather_reuses_existing_service_and_formats_safe_response(self):
+        from app.agents.tools.travel_context_tools import lookup_weather
+        from app.agents.tool_context import planner_tool_user
+
+        weather_data = {
+            'city': 'Taipei',
+            'country': 'TW',
+            'temperature': 28,
+            'feels_like': 31,
+            'description': 'Clear sky',
+            'humidity': 70,
+            'wind_speed': 10.5,
+            'date': 'Jun 12',
+            'time': '09:00 AM',
+        }
+        forecast_data = [
+            {
+                'day': 'Thursday',
+                'date': 'Jun 12',
+                'time': '12:00 PM',
+                'temperature': 29,
+                'description': 'Sunny',
+                'humidity': 65,
+                'wind_speed': 9.1,
+                'pop': 10,
+            },
+            {
+                'day': 'Friday',
+                'date': 'Jun 13',
+                'time': '09:00 AM',
+                'temperature': 27,
+                'description': 'Cloudy',
+                'humidity': 72,
+                'wind_speed': 8.4,
+                'pop': 20,
+            },
+        ]
+
+        with patch(
+            'app.agents.tools.travel_context_tools.fetch_weather_and_forecast',
+            return_value=(weather_data, forecast_data),
+        ) as weather_mock, planner_tool_user(self.user):
+            result = invoke_tool(lookup_weather, city='Taipei', date='2026-06-12')
+
+        weather_mock.assert_called_once()
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['tool'], 'lookup_weather')
+        self.assertEqual(result['normalized_values']['city'], 'Taipei')
+        self.assertEqual(result['normalized_values']['date'], '2026-06-12')
+        self.assertEqual(result['forecast_match_count'], 1)
+        self.assertEqual(result['forecast'][0]['date_label'], 'Jun 12')
+
+    def test_lookup_weather_hides_provider_details_in_error_and_logs(self):
+        from app.agents.tools.travel_context_tools import lookup_weather
+        from app.agents.tool_context import planner_tool_user
+        from app.views.weather.weather import WeatherLookupError
+
+        with patch(
+            'app.agents.tools.travel_context_tools.fetch_weather_and_forecast',
+            side_effect=WeatherLookupError('DO_NOT_LOG_SECRET provider payload'),
+        ), self.assertLogs('app.agents.tools.travel_context_tools', level='WARNING') as logs, planner_tool_user(self.user):
+            result = invoke_tool(lookup_weather, city='Taipei', date='2026-06-12')
+
+        log_text = ' '.join(logs.output)
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'weather_lookup_failed')
+        self.assertNotIn('DO_NOT_LOG_SECRET', result['message'])
+        self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
+
+    def test_convert_currency_reuses_existing_service(self):
+        from app.agents.tools.travel_context_tools import convert_currency
+
+        with patch('app.agents.tools.travel_context_tools.get_exchange_rate', return_value=31.25) as rate_mock:
+            result = invoke_tool(convert_currency, from_currency='usd', to_currency='twd', amount='10')
+
+        rate_mock.assert_called_once_with('USD', 'TWD')
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['exchange_rate'], 31.25)
+        self.assertEqual(result['converted_amount_display'], '312.50')
+
+    def test_convert_currency_hides_provider_errors(self):
+        from app.agents.tools.travel_context_tools import convert_currency
+
+        with patch(
+            'app.agents.tools.travel_context_tools.get_exchange_rate',
+            return_value=Exception('DO_NOT_LOG_SECRET provider payload'),
+        ), self.assertLogs('app.agents.tools.travel_context_tools', level='WARNING') as logs:
+            result = invoke_tool(convert_currency, from_currency='USD', to_currency='TWD', amount='10')
+
+        log_text = ' '.join(logs.output)
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'exchange_lookup_failed')
+        self.assertNotIn('DO_NOT_LOG_SECRET', result['message'])
+        self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
+
+    def test_exchange_view_returns_provider_message_without_type_error(self):
+        with patch(
+            'app.views.exchange.exchange.get_exchange_rate',
+            return_value=Exception('Provider unavailable'),
+        ):
+            response = self.client.post(reverse('exchange'), {
+                'from_currency': 'USD',
+                'to_currency': 'TWD',
+                'amount': '10',
+            }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        messages = list(response.context['messages'])
+        self.assertTrue(any('Provider unavailable' in str(message) for message in messages))
+
+
+class OwnerCCalendarManagementToolTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='calendar-tool-owner', password='password123')
+        self.other_user = User.objects.create_user(username='calendar-tool-other', password='password123')
+
+    def test_list_calendar_events_returns_only_authenticated_users_events(self):
+        from app.agents.tools.calendar_tools import list_calendar_events
+        from app.agents.tool_context import planner_tool_user
+
+        Event.objects.create(owner=self.owner, event_name='DO_NOT_LOG_SECRET owner event', date='2026-06-12', color='green')
+        Event.objects.create(owner=self.other_user, event_name='other event', date='2026-06-13', color='orange')
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(list_calendar_events, start_date='2026-06-01', end_date='2026-06-30')
+
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['count'], 1)
+        self.assertEqual(result['events'][0]['color'], 'green')
+        self.assertEqual(result['events'][0]['date'], '2026-06-12')
+
+    def test_create_calendar_event_validates_payload_assigns_owner_and_keeps_logs_safe(self):
+        from app.agents.tools.calendar_tools import create_calendar_event
+        from app.agents.tool_context import planner_tool_user
+
+        payload = {
+            'eventName': 'DO_NOT_LOG_SECRET trip planning',
+            'date': '2026-06-18',
+            'color': 'blue',
+        }
+
+        with self.assertLogs('app.agents.tools.calendar_tools', level='INFO') as logs, planner_tool_user(self.owner):
+            result = invoke_tool(create_calendar_event, event_payload=payload)
+
+        event = Event.objects.get()
+        log_text = ' '.join(logs.output)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(event.owner, self.owner)
+        self.assertEqual(event.color, 'blue')
+        self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
+
+    def test_create_calendar_event_rejects_invalid_color(self):
+        from app.agents.tools.calendar_tools import create_calendar_event
+        from app.agents.tool_context import planner_tool_user
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(create_calendar_event, event_payload={
+                'eventName': 'Bad color',
+                'date': '2026-06-18',
+                'color': 'purple',
+            })
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'invalid_color')
+        self.assertEqual(Event.objects.count(), 0)
+
+    def test_delete_calendar_event_removes_only_owned_event(self):
+        from app.agents.tools.calendar_tools import delete_calendar_event
+        from app.agents.tool_context import planner_tool_user
+
+        event = Event.objects.create(owner=self.owner, event_name='Delete me', date='2026-06-18', color='yellow')
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(delete_calendar_event, event_id=event.id)
+
+        self.assertEqual(result['status'], 'ok')
+        self.assertFalse(Event.objects.filter(id=event.id).exists())
+
+    def test_delete_calendar_event_cannot_remove_other_users_event(self):
+        from app.agents.tools.calendar_tools import delete_calendar_event
+        from app.agents.tool_context import planner_tool_user
+
+        event = Event.objects.create(owner=self.other_user, event_name='Private dinner', date='2026-06-18', color='yellow')
+
+        with self.assertLogs('app.agents.tools.calendar_tools', level='WARNING'), planner_tool_user(self.owner):
+            result = invoke_tool(delete_calendar_event, event_id=event.id)
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'event_not_found')
+        self.assertTrue(Event.objects.filter(id=event.id).exists())
+
+
 class StaticHygieneTests(TestCase):
     def test_templates_static_sources_and_currency_data_have_no_emoji(self):
         emoji_pattern = re.compile(r'[\U0001F300-\U0001FAFF\u2600-\u27BF]')
