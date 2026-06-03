@@ -36,8 +36,11 @@ DEBUG = os.environ.get('DJANGO_DEBUG') == 'true'
 # if DEBUG:
 #     raise RuntimeError('DEBUG must be False in production.')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else ['*']
 
+CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if os.getenv('CSRF_TRUSTED_ORIGINS') else []
+
+ALLOWED_IP_RANGES = os.getenv('ALLOWED_IP_RANGES', '').split(',') if os.getenv('ALLOWED_IP_RANGES') else ['0.0.0.0/0']
 
 # Application definition
 
@@ -52,6 +55,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'app.middleware.IPRangeRestrictionMiddleware',  # Custom IP range restriction middleware
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -160,6 +164,15 @@ LOGGING = {
             'backupCount': 5,
             'encoding': 'utf-8',
         },
+        'network_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOG_DIR / 'network.log'),
+            'formatter': 'traceable',
+            'level': 'DEBUG',
+            'maxBytes': 5 * 1024 * 1024,
+            'backupCount': 5,
+            'encoding': 'utf-8',
+        },
     },
     'root': {
         'handlers': ['app_file'],
@@ -186,6 +199,11 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False,
         },
+        'network': {
+            'handlers': ['network_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        }
     },
 }
 

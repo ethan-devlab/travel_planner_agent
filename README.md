@@ -49,7 +49,7 @@ npm run build:css
 ```
 Finally, run
 ```
-python3 manage.py runserver
+python manage.py runserver
 ```
 The default url will be `127.0.0.1:8000/`
 
