@@ -15,6 +15,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 import requests
 
+from ...budget_currency import BUDGET_CURRENCY_CODES, resolve_budget_currency
 from ...models import Expense, Itinerary, Location, Status, Tag, TravelMethod
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ ITINERARY_FIELDS = {
     "end_date",
     "location",
     "budget",
+    "budget_currency",
     "description",
     "is_public",
     "status",
@@ -327,6 +329,14 @@ def _validated_itinerary_values(payload, creating, itinerary):
             "invalid_date_range",
             "start_date must be on or before end_date.",
         )
+
+    resolved_location = values.get("location", getattr(itinerary, "location", ""))
+    submitted_currency = payload.get("budget_currency") if "budget_currency" in payload else ("AUTO" if creating else getattr(itinerary, "budget_currency", "TWD"))
+    values["budget_currency"] = resolve_budget_currency(
+        resolved_location,
+        submitted_currency,
+        fallback=getattr(itinerary, "budget_currency", "TWD") if itinerary else "TWD",
+    )
     return values, None
 
 
@@ -353,6 +363,14 @@ def _coerce_itinerary_field(field, raw_value):
             return None, _error("create_or_update_itinerary", "invalid_budget", "budget must be numeric.")
         if value < 0:
             return None, _error("create_or_update_itinerary", "invalid_budget", "budget cannot be negative.")
+        return value, None
+
+    if field == "budget_currency":
+        value = str(raw_value or "").strip().upper()
+        if not value or value == "AUTO":
+            return value or "AUTO", None
+        if value not in BUDGET_CURRENCY_CODES:
+            return None, _error("create_or_update_itinerary", "invalid_budget_currency", "budget_currency must be a supported currency code.")
         return value, None
 
     if field == "is_public":
@@ -767,6 +785,8 @@ def _serialize_itinerary(itinerary, include_locations=True, locations=None):
         "end_date": itinerary.end_date.isoformat(),
         "location": itinerary.location,
         "budget": str(itinerary.budget),
+        "budget_currency": itinerary.budget_currency,
+        "budget_display": itinerary.budget_display,
         "is_public": itinerary.is_public,
         "status": itinerary.status,
         "tag_names": list(itinerary.tags.values_list("name", flat=True)),
@@ -787,6 +807,8 @@ def _serialize_itinerary_summary(itinerary, user):
         "end_date": itinerary.end_date.isoformat(),
         "location": itinerary.location,
         "budget": str(itinerary.budget),
+        "budget_currency": itinerary.budget_currency,
+        "budget_display": itinerary.budget_display,
         "is_public": itinerary.is_public,
         "status": itinerary.status,
         "relationship": "owner" if itinerary.owner_id == user.id else "collaborator",

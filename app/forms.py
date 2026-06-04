@@ -4,8 +4,18 @@ from .models import Itinerary, Expense
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.models import User
 
+from .budget_currency import BUDGET_CURRENCY_CHOICES
+
 
 class ItineraryForm(forms.ModelForm):
+    budget_currency_choice = forms.ChoiceField(
+        required=False,
+        label="預算幣別",
+        choices=(("AUTO", "自動依地點判斷"),) + BUDGET_CURRENCY_CHOICES,
+        widget=forms.Select(attrs={'class': 'form-select'}),
+        help_text="保留自動判斷時，系統會依地點 / 國家自動帶入常用幣別。",
+    )
+
     collaborators = forms.CharField(
         required=False,
         label="協作者",
@@ -45,6 +55,13 @@ class ItineraryForm(forms.ModelForm):
             'location': '地點 / 國家',
             'status': '行程狀態',
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['budget_currency_choice'].initial = self.instance.budget_currency
+        else:
+            self.fields['budget_currency_choice'].initial = "AUTO"
 
 
 class RegisterForm(UserCreationForm):

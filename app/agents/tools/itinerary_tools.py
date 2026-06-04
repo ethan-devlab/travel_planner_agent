@@ -21,7 +21,7 @@ class ExpenseDraft(BaseModel):
 class LocationDraft(BaseModel):
     location_id: int | None = Field(default=None, description="Existing location id when updating an itinerary.")
     name: str = Field(description="Place or activity name, such as Tokyo Tower or Senso-ji Temple.")
-    travel_method: str = Field(default="walk", description="One of boat, plane, walk, car, train, or bus.")
+    travel_method: str = Field(default="walk", description="One of boat, plane, walk, car, hsr, train, or bus.")
     visit_date: str | None = Field(default=None, description="ISO datetime preferred (YYYY-MM-DDTHH:MM).")
     latitude: float | None = Field(default=None, description="Ignored by planner agent; coordinates are resolved via Nominatim.")
     longitude: float | None = Field(default=None, description="Ignored by planner agent; coordinates are resolved via Nominatim.")
@@ -37,6 +37,7 @@ class ItineraryDraftPayload(BaseModel):
     end_date: str | None = Field(default=None, description="Trip end date in YYYY-MM-DD format.")
     location: str | None = Field(default=None, description="Primary destination or country.")
     budget: str | float | None = Field(default=None, description="Total itinerary budget.")
+    budget_currency: str | None = Field(default=None, description="Currency code such as TWD, USD, or JPY. Omit to infer from location.")
     description: str | None = Field(default=None, description="Short itinerary description.")
     is_public: bool | None = Field(default=None, description="Whether the itinerary is public.")
     status: str | None = Field(default=None, description="One of draft, ongoing, completed, or cancelled.")

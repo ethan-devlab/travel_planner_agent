@@ -34,7 +34,7 @@
             </div>
             <div class="detail-item">
                 <i class="ri-money-dollar-circle-line"></i>
-                <span>預算：${{ item.budget|default:"未設定" }}</span>
+                <span>預算：{{ item.budget_display|default:"未設定" }}</span>
             </div>
             <div class="detail-item">
                 <i class="ri-map-pin-line"></i>
@@ -60,6 +60,15 @@
                 <i class="ri-edit-line"></i>
                 編輯
             </a>
+            {% if not show_owner %}
+            <form method="post" action="{% url 'sync_itinerary_calendar' item.id %}" class="inline-form">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-secondary">
+                    <i class="ri-calendar-check-line"></i>
+                    匯入行事曆
+                </button>
+            </form>
+            {% endif %}
             <a href="{% url 'delete_itinerary' item.id %}" class="btn btn-outline-danger"
                onclick="return confirm('確定要刪除「{{ item.title }}」這個行程嗎？')">
                 <i class="ri-delete-bin-line"></i>
