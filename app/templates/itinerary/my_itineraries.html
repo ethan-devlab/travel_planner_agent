@@ -10,6 +10,14 @@
         我的旅遊行程
     </h2>
 
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}" role="alert">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
     {% include "itinerary/_itinerary_grid.html" %}
 </div>
 {% endblock %}

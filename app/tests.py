@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 import requests
 
+from app.budget_currency import infer_budget_currency
 from app.models import Event, Itinerary, Tag
 from app.views.itinerary.route_helpers import normalize_routing_service_url
 from app.views.weather import weather as weather_view
@@ -36,6 +37,12 @@ def invoke_tool(tool_obj, **kwargs):
 
 
 class WeatherApiTests(TestCase):
+    def test_normalize_weather_city_query_adds_taiwan_for_taichung_alias(self):
+        normalized_city, geocoding_query = weather_view.normalize_weather_city_query('台中')
+
+        self.assertEqual(normalized_city, '台中市')
+        self.assertEqual(geocoding_query, '台中市, Taiwan')
+
     def test_geocode_city_uses_first_result_and_keeps_user_city_name(self):
         payload = [
             {'name': 'Taipei', 'lat': 25.0375198, 'lon': 121.5636796, 'country': 'TW'},
@@ -50,6 +57,22 @@ class WeatherApiTests(TestCase):
         self.assertEqual(result['lat'], 25.0375198)
         self.assertEqual(result['lon'], 121.5636796)
         self.assertEqual(request_mock.call_args.kwargs['params']['limit'], 5)
+
+    def test_geocode_city_prefers_taiwan_match_for_taichung_alias(self):
+        payload = [
+            {'name': 'Taichung', 'lat': 24.1477, 'lon': 120.6736, 'country': 'US'},
+            {'name': '台中市', 'lat': 24.1631, 'lon': 120.6478, 'country': 'TW'},
+        ]
+
+        with patch.object(weather_view.requests, 'get', return_value=FakeResponse(payload)) as request_mock:
+            result = weather_view.geocode_city('台中', 'api-key')
+
+        self.assertEqual(result['city'], '台中市')
+        self.assertEqual(result['country'], 'TW')
+        self.assertEqual(result['matched_name'], '台中市')
+        self.assertEqual(result['lat'], 24.1631)
+        self.assertEqual(result['lon'], 120.6478)
+        self.assertEqual(request_mock.call_args.kwargs['params']['q'], '台中市, Taiwan')
 
     def test_geocode_city_empty_response_raises_lookup_error(self):
         with patch.object(weather_view.requests, 'get', return_value=FakeResponse([])):
@@ -105,6 +128,13 @@ class WeatherApiTests(TestCase):
         self.assertEqual(forecasts[0]['pop'], 20)
 
 
+class BudgetCurrencyTests(TestCase):
+    def test_infer_budget_currency_prefers_location_hint(self):
+        self.assertEqual(infer_budget_currency('Tokyo, Japan'), 'JPY')
+        self.assertEqual(infer_budget_currency('台中市'), 'TWD')
+        self.assertEqual(infer_budget_currency('Seoul, Korea'), 'KRW')
+
+
 class ItineraryRouteTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='owner', password='password123')
@@ -117,6 +147,7 @@ class ItineraryRouteTests(TestCase):
             'end_date': '2026-06-03',
             'location': 'Taipei',
             'budget': '1000',
+            'budget_currency_choice': 'AUTO',
             'description': 'Short city route',
             'status': 'draft',
             'location_name[]': ['Second Stop', 'First Stop'],
@@ -138,6 +169,7 @@ class ItineraryRouteTests(TestCase):
         self.assertAlmostEqual(locations[0].latitude, 25.03752)
         self.assertAlmostEqual(locations[0].longitude, 121.56368)
         self.assertEqual(locations[1].expenses.get().amount, Decimal('12.50'))
+        self.assertEqual(itinerary.budget_currency, 'TWD')
 
     def test_detail_page_renders_route_waypoint_data(self):
         itinerary = Itinerary.objects.create(
@@ -190,6 +222,142 @@ class ItineraryRouteTests(TestCase):
         self.assertContains(response, 'data-location-move="up"')
         self.assertContains(response, 'data-location-move="down"')
         self.assertContains(response, "moveLocation(this, 'up')")
+        self.assertContains(response, '<option value="hsr">搭高鐵</option>', html=True)
+
+    def test_create_page_renders_sync_to_calendar_option(self):
+        response = self.client.get(reverse('create'))
+
+        self.assertContains(response, 'name="sync_to_calendar"')
+        self.assertContains(response, '只有狀態為 ongoing 的行程會同步')
+
+    def test_create_form_renders_budget_currency_option(self):
+        response = self.client.get(reverse('create'))
+
+        self.assertContains(response, 'name="budget_currency_choice"')
+        self.assertContains(response, '自動依地點判斷')
+
+    def test_create_itinerary_infers_budget_currency_from_location(self):
+        response = self.client.post(reverse('create'), {
+            'title': 'Tokyo Budget',
+            'start_date': '2026-06-01',
+            'end_date': '2026-06-03',
+            'location': 'Tokyo, Japan',
+            'budget': '1000',
+            'budget_currency_choice': 'AUTO',
+            'description': 'Currency inference test',
+            'status': 'draft',
+            'location_name[]': ['Tokyo Tower'],
+            'travel_method[]': ['walk'],
+            'transport_note[]': [''],
+            'visit_date[]': ['2026-06-01T10:00'],
+            'location_latitude[]': ['35.6586'],
+            'location_longitude[]': ['139.7454'],
+            'route_order[]': ['0'],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        itinerary = Itinerary.objects.get(title='Tokyo Budget')
+        self.assertEqual(itinerary.budget_currency, 'JPY')
+
+    def test_create_itinerary_respects_manual_budget_currency(self):
+        response = self.client.post(reverse('create'), {
+            'title': 'Tokyo USD Budget',
+            'start_date': '2026-06-01',
+            'end_date': '2026-06-03',
+            'location': 'Tokyo, Japan',
+            'budget': '1000',
+            'budget_currency_choice': 'USD',
+            'description': 'Manual currency test',
+            'status': 'draft',
+            'location_name[]': ['Tokyo Tower'],
+            'travel_method[]': ['walk'],
+            'transport_note[]': [''],
+            'visit_date[]': ['2026-06-01T10:00'],
+            'location_latitude[]': ['35.6586'],
+            'location_longitude[]': ['139.7454'],
+            'route_order[]': ['0'],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        itinerary = Itinerary.objects.get(title='Tokyo USD Budget')
+        self.assertEqual(itinerary.budget_currency, 'USD')
+
+    def test_create_itinerary_accepts_hsr_travel_method(self):
+        response = self.client.post(reverse('create'), {
+            'title': 'HSR Trip',
+            'start_date': '2026-06-01',
+            'end_date': '2026-06-03',
+            'location': 'Taiwan',
+            'budget': '1000',
+            'budget_currency_choice': 'AUTO',
+            'description': 'High speed rail test',
+            'status': 'draft',
+            'location_name[]': ['台中站'],
+            'travel_method[]': ['hsr'],
+            'transport_note[]': [''],
+            'visit_date[]': ['2026-06-01T10:00'],
+            'location_latitude[]': ['24.1120'],
+            'location_longitude[]': ['120.6150'],
+            'route_order[]': ['0'],
+        })
+
+        self.assertEqual(response.status_code, 302)
+        itinerary = Itinerary.objects.get(title='HSR Trip')
+        self.assertEqual(itinerary.locations.get().travel_method, 'hsr')
+
+    def test_create_itinerary_syncs_calendar_when_checked_and_ongoing(self):
+        response = self.client.post(reverse('create'), {
+            'title': 'Taichung Trip',
+            'start_date': '2026-06-01',
+            'end_date': '2026-06-03',
+            'location': 'Taichung',
+            'budget': '1000',
+            'budget_currency_choice': 'AUTO',
+            'description': 'Trip sync test',
+            'status': 'ongoing',
+            'sync_to_calendar': 'on',
+            'location_name[]': ['Museum', 'Night Market'],
+            'travel_method[]': ['walk', 'walk'],
+            'transport_note[]': ['', ''],
+            'visit_date[]': ['2026-06-01T10:00', '2026-06-01T18:00'],
+            'location_latitude[]': ['24.1477', '24.1374'],
+            'location_longitude[]': ['120.6736', '120.6869'],
+            'route_order[]': ['0', '1'],
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Event.objects.count(), 2)
+        self.assertEqual(
+            list(Event.objects.order_by('date', 'event_name').values_list('event_name', flat=True)),
+            ['Taichung Trip｜Museum', 'Taichung Trip｜Night Market'],
+        )
+        messages_text = ' '.join(str(message) for message in response.context['messages'])
+        self.assertIn('已同步 2 筆行程到行事曆', messages_text)
+
+    def test_create_itinerary_does_not_sync_calendar_when_not_ongoing(self):
+        response = self.client.post(reverse('create'), {
+            'title': 'Draft Trip',
+            'start_date': '2026-06-01',
+            'end_date': '2026-06-03',
+            'location': 'Taipei',
+            'budget': '1000',
+            'budget_currency_choice': 'AUTO',
+            'description': 'Draft sync test',
+            'status': 'draft',
+            'sync_to_calendar': 'on',
+            'location_name[]': ['Museum'],
+            'travel_method[]': ['walk'],
+            'transport_note[]': [''],
+            'visit_date[]': ['2026-06-01T10:00'],
+            'location_latitude[]': ['25.03752'],
+            'location_longitude[]': ['121.56368'],
+            'route_order[]': ['0'],
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Event.objects.count(), 0)
+        messages_text = ' '.join(str(message) for message in response.context['messages'])
+        self.assertIn('只有進行中的行程才會同步到行事曆', messages_text)
 
 
 class ItineraryEditPersistenceTests(TestCase):
@@ -207,6 +375,7 @@ class ItineraryEditPersistenceTests(TestCase):
             'end_date': '2026-06-03',
             'location': 'Taipei',
             'budget': '750.00',
+            'budget_currency': 'TWD',
             'description': 'Original description',
             'status': 'draft',
         }
@@ -220,6 +389,7 @@ class ItineraryEditPersistenceTests(TestCase):
             'end_date': '2026-06-03',
             'location': 'Taipei',
             'budget': '900.00',
+            'budget_currency_choice': 'AUTO',
             'description': 'Updated description',
             'status': 'ongoing',
             'custom_tags': '',
@@ -819,6 +989,22 @@ class OwnerAItineraryManagementTests(TestCase):
         self.assertEqual(location.expenses.get().amount, Decimal('15.50'))
         self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
 
+    def test_create_itinerary_infers_budget_currency_in_agent_service(self):
+        from app.agents.services.itinerary_management import create_or_update_itinerary_for_user
+
+        with patch(
+            'app.agents.services.itinerary_management._geocode_location_coordinates',
+            return_value=(35.6586, 139.7454),
+        ):
+            result = create_or_update_itinerary_for_user(self.owner, self._draft_payload(
+                title='Tokyo Agent Draft',
+                location='Tokyo, Japan',
+            ))
+
+        itinerary = Itinerary.objects.get(title='Tokyo Agent Draft')
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(itinerary.budget_currency, 'JPY')
+
     def test_create_itinerary_accepts_activity_locations_without_travel_method(self):
         from app.agents.services.itinerary_management import create_or_update_itinerary_for_user
 
@@ -1254,9 +1440,11 @@ class ItineraryDiscoveryViewTests(TestCase):
         shared_response = self.client.get(reverse('shared_itineraries'))
 
         self.assertContains(mine, owned.title)
+        self.assertContains(mine, '匯入行事曆')
         self.assertContains(shared_response, shared.title)
         self.assertNotContains(mine, '由 discover-owner 共享')
         self.assertContains(shared_response, '由 discover-owner 共享')
+        self.assertNotContains(shared_response, '匯入行事曆')
 
     def test_owner_can_delete_itinerary(self):
         itinerary = self._itinerary(title='Delete Me', is_public=False)
@@ -1266,6 +1454,36 @@ class ItineraryDiscoveryViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse('my_itineraries'))
         self.assertFalse(Itinerary.objects.filter(id=itinerary.id).exists())
+
+    def test_owner_can_import_ongoing_itinerary_to_calendar_from_my_page(self):
+        itinerary = self._itinerary(title='Import Me', is_public=False, status='ongoing')
+        itinerary.locations.create(
+            name='Museum',
+            travel_method='walk',
+            note='',
+            visit_date='2026-06-02T10:00:00+08:00',
+            latitude=25.03752,
+            longitude=121.56368,
+            route_order=0,
+        )
+
+        response = self.client.post(reverse('sync_itinerary_calendar', args=[itinerary.id]), follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Event.objects.count(), 1)
+        self.assertEqual(Event.objects.get().event_name, 'Import Me｜Museum')
+        messages_text = ' '.join(str(message) for message in response.context['messages'])
+        self.assertIn('已匯入 1 筆行程到行事曆', messages_text)
+
+    def test_import_calendar_skips_non_ongoing_itinerary(self):
+        itinerary = self._itinerary(title='Draft Import', is_public=False, status='draft')
+
+        response = self.client.post(reverse('sync_itinerary_calendar', args=[itinerary.id]), follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Event.objects.count(), 0)
+        messages_text = ' '.join(str(message) for message in response.context['messages'])
+        self.assertIn('只有進行中的行程才可以匯入行事曆', messages_text)
 
 
 class ItineraryTemplateViewTests(TestCase):
@@ -1309,6 +1527,7 @@ class ItineraryTemplateViewTests(TestCase):
             end_date='2026-06-03',
             location='Taipei',
             budget='1000.00',
+            budget_currency='JPY',
             description='Template description',
             is_public=True,
         )
@@ -1336,6 +1555,7 @@ class ItineraryTemplateViewTests(TestCase):
         self.assertEqual(list(copied.tags.all()), [tag])
         self.assertEqual(copied_location.name, location.name)
         self.assertEqual(copied_location.expenses.get().amount, Decimal('15.50'))
+        self.assertEqual(copied.budget_currency, 'JPY')
 
     def test_copy_itinerary_get_redirects_to_template_list(self):
         response = self.client.get(reverse('copy_itinerary'))

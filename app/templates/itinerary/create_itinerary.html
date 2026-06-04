@@ -78,6 +78,7 @@
                                 <option value="car">開車</option>
                                 <option value="plane">搭飛機</option>
                                 <option value="boat">搭船</option>
+                                <option value="hsr">搭高鐵</option>
                                 <option value="train">搭火車</option>
                                 <option value="bus">搭巴士</option>
                             </select>
@@ -134,6 +135,20 @@
             </h5>
             <div class="route-map" data-route-map></div>
             <div class="route-message" data-route-message hidden></div>
+        </div>
+
+        <div class="form-section">
+            <h5 class="section-title">
+                <i class="ri-calendar-check-line"></i>
+                行事曆同步
+            </h5>
+            <div class="form-check">
+                <input type="checkbox" name="sync_to_calendar" class="form-check-input" id="sync_to_calendar">
+                <label class="form-check-label" for="sync_to_calendar">
+                    建立行程時同步新增到行事曆
+                </label>
+            </div>
+            <p class="form-text">只有狀態為 ongoing 的行程會同步；若地點有造訪日期，會建立對應的行事曆事件。</p>
         </div>
 
         <div class="submit-section">

@@ -28,12 +28,23 @@
 - Risk: direct module usage and local debugging can see different environment behavior from the Django app.
 - Resolution: aligned the exchange module to `load_dotenv("env/.env")`.
 
+### 5. Planner-agent weather lookups could misinterpret Taiwan city aliases
+- Symptom: asking for `台中` could rely on session memory or a provider's first geocoding result instead of globally resolving to `台中市`.
+- Root cause: the shared weather service passed the raw city string to geocoding and always used the first returned match.
+- Resolution: normalized common Taiwan city aliases in the shared weather service and prefer exact Taiwan matches before falling back to other geocoding results.
+
+### 6. Local database schema lagged behind the new budget currency field
+- Symptom: local Django writes failed with `app_itinerary has no column named budget_currency`.
+- Root cause: code and migration were added, but the local `db.sqlite3` had not run the new migration yet.
+- Resolution: ran `python manage.py migrate` so `app.0009_itinerary_budget_currency` was applied locally.
+
 ## Implementation Notes
 - Weather tool reuses `app.views.weather.weather.fetch_weather_and_forecast`.
 - Currency tool reuses `app.views.exchange.exchange.get_exchange_rate`.
 - Calendar tools require authenticated planner-tool context from `app.agents.tool_context.get_current_planner_user()`.
 - Calendar writes validate date and color before creating records.
 - Calendar deletion is owner-scoped and returns a permission-safe not-found response for other users' events.
+- Itinerary budget now stores an explicit `budget_currency` and can auto-infer the saved currency from the destination text when the user selects auto mode.
 - Tool logs only contain safe metadata such as tool name, ids, counts, range flags, city length, currency pairs, and error categories.
 
 ## Verification
@@ -45,6 +56,7 @@
 ## Covered by Tests
 - Weather lookup formats safe tool output and filters forecast rows by requested date label.
 - Weather provider failures do not leak provider details into tool results or logs.
+- Taiwan city aliases such as `台中` normalize to `台中市, Taiwan` before geocoding and prefer `country=TW` matches.
 - Currency conversion reuses the exchange service and hides provider error details safely.
 - Calendar listing only returns the authenticated user's events.
 - Calendar creation validates payload, assigns the authenticated owner, and avoids logging event names.

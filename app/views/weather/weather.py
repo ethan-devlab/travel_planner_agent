@@ -2,6 +2,7 @@
 import datetime
 import logging
 import os
+import re
 
 from django.conf import settings
 from django.contrib import messages
@@ -19,6 +20,35 @@ GEOCODING_URL = settings.GEOCODING_URL
 CURRENT_WEATHER_URL = settings.CURRENT_WEATHER_URL
 FORECAST_URL = settings.FORECAST_URL
 REQUEST_TIMEOUT_SECONDS = settings.REQUEST_TIMEOUT_SECONDS
+
+TAIWAN_CITY_ALIASES = {
+    "台北": "台北市",
+    "臺北": "台北市",
+    "新北": "新北市",
+    "桃園": "桃園市",
+    "台中": "台中市",
+    "臺中": "台中市",
+    "台南": "台南市",
+    "臺南": "台南市",
+    "高雄": "高雄市",
+    "基隆": "基隆市",
+    "新竹": "新竹市",
+    "嘉義": "嘉義市",
+    "宜蘭": "宜蘭縣",
+    "新竹縣": "新竹縣",
+    "苗栗": "苗栗縣",
+    "彰化": "彰化縣",
+    "南投": "南投縣",
+    "雲林": "雲林縣",
+    "嘉義縣": "嘉義縣",
+    "屏東": "屏東縣",
+    "台東": "台東縣",
+    "臺東": "台東縣",
+    "花蓮": "花蓮縣",
+    "澎湖": "澎湖縣",
+    "金門": "金門縣",
+    "連江": "連江縣",
+}
 
 
 class WeatherLookupError(Exception):
@@ -55,10 +85,11 @@ def geocode_city(city, api_key, limit=5):
     if not api_key:
         raise WeatherLookupError("Weather API key is missing.")
 
+    normalized_city, geocoding_query = normalize_weather_city_query(city)
     try:
         response = requests.get(
             GEOCODING_URL,
-            params={'q': city, 'limit': limit, 'appid': api_key},
+            params={'q': geocoding_query, 'limit': limit, 'appid': api_key},
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
@@ -70,12 +101,14 @@ def geocode_city(city, api_key, limit=5):
     if not data:
         raise WeatherLookupError("City not found. Please use a more specific city name.")
 
-    first_result = data[0]
+    first_result = _select_best_geocode_result(data, normalized_city)
     return {
-        'city': city,
+        'city': normalized_city,
         'lat': first_result['lat'],
         'lon': first_result['lon'],
         'country': first_result.get('country', ''),
+        'matched_name': first_result.get('name', normalized_city),
+        'matched_state': first_result.get('state', ''),
     }
 
 
@@ -143,3 +176,28 @@ def fetch_weather_and_forecast(city, api_key):
         })
 
     return weather_data, daily_forecasts
+
+
+def normalize_weather_city_query(city):
+    normalized_city = re.sub(r"\s+", " ", str(city or "").strip())
+    alias_key = normalized_city.replace("臺", "台")
+    canonical_city = TAIWAN_CITY_ALIASES.get(alias_key, normalized_city)
+
+    if canonical_city.endswith(("市", "縣")) and "taiwan" not in canonical_city.lower():
+        return canonical_city, f"{canonical_city}, Taiwan"
+    return canonical_city, canonical_city
+
+
+def _select_best_geocode_result(results, normalized_city):
+    canonical_city = normalized_city.replace("臺", "台")
+
+    for result in results:
+        result_name = str(result.get('name', '')).replace("臺", "台")
+        if result.get('country') == 'TW' and result_name == canonical_city:
+            return result
+
+    for result in results:
+        if result.get('country') == 'TW':
+            return result
+
+    return results[0]
