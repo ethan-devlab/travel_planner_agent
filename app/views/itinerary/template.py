@@ -37,6 +37,7 @@ def copy_itinerary(request):
                 start_date=original_itinerary.start_date,
                 end_date=original_itinerary.end_date,
                 budget=original_itinerary.budget,
+                budget_currency=original_itinerary.budget_currency,
             )
 
             new_itinerary.save()
@@ -75,4 +76,3 @@ def copy_itinerary(request):
             return redirect('template_list')
 
     return redirect('template_list')
-
