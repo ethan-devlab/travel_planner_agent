@@ -18,7 +18,7 @@ Make sure you have done the actions above to get into virtual environment, you w
 
 Next, install the required packages.
 ```
-cd travel_planner_agent
+cd traver_planner_agent
 pip install -r requirements.txt
 npm install
 npm run build:css
@@ -42,7 +42,7 @@ Make sure you have done the actions above to get into virtual environment, you w
 
 Next, install the required packages.
 ```
-cd travel_planner_agent
+cd traver_planner_agent
 pip install -r requirements.txt
 npm install
 npm run build:css
@@ -52,6 +52,7 @@ Finally, run
 python manage.py runserver
 ```
 The default url will be `127.0.0.1:8000/`
+If port `8000` is already in use, run `python3 manage.py runserver 8001` instead.
 
 ### Environment Variables
 Create a `.env` file in the `env` directory with the following content, replacing values as needed. There are example values in `env/.env.example` that you can copy and modify.

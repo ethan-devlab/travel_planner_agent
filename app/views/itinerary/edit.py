@@ -1,6 +1,7 @@
 # coding=utf-8
 
 from ...forms import ItineraryForm
+from ...budget_currency import resolve_budget_currency
 from ...models import Itinerary
 from .location_form import save_locations_from_post
 from .persistence import save_itinerary_relations_from_post
@@ -30,7 +31,13 @@ def edit_itinerary(request, id):
         form = ItineraryForm(request.POST, instance=itinerary)
         if form.is_valid():
             with transaction.atomic():
-                itinerary = form.save()
+                itinerary = form.save(commit=False)
+                itinerary.budget_currency = resolve_budget_currency(
+                    itinerary.location,
+                    form.cleaned_data.get("budget_currency_choice"),
+                    fallback=itinerary.budget_currency,
+                )
+                itinerary.save()
                 save_itinerary_relations_from_post(itinerary, request.POST, request)
                 save_locations_from_post(itinerary, request.POST, clear_existing=True)
 

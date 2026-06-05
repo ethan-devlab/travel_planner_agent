@@ -2,6 +2,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 
+from .budget_currency import BUDGET_CURRENCY_CHOICES, format_budget
+
 
 class Tag(models.Model):
     name = models.CharField(max_length=30)
@@ -15,6 +17,7 @@ class TravelMethod(models.TextChoices):
     PLANE = 'plane', 'Plane'
     WALK = 'walk', 'Walk'
     CAR = 'car', 'Car'
+    HSR = 'hsr', 'High Speed Rail'
     TRAIN = 'train', 'Train'
     BUS = 'bus', 'Bus'
 
@@ -33,12 +36,17 @@ class Itinerary(models.Model):
     end_date = models.DateField()
     location = models.CharField(max_length=100, blank=True, default='')
     budget = models.DecimalField(max_digits=10, decimal_places=2)
+    budget_currency = models.CharField(max_length=3, choices=BUDGET_CURRENCY_CHOICES, default='TWD')
     is_public = models.BooleanField(default=False)
     tags = models.ManyToManyField(Tag, blank=True)
     collaborators = models.ManyToManyField(User, related_name='shared_itineraries', blank=True)
     updated_at = models.DateTimeField(auto_now=True)
     description = models.TextField(blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+
+    @property
+    def budget_display(self):
+        return format_budget(self.budget, self.budget_currency)
 
 
 class Location(models.Model):
