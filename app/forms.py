@@ -4,7 +4,7 @@ from .models import Itinerary, Expense
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
 from django.contrib.auth.models import User
 
-from .budget_currency import BUDGET_CURRENCY_CHOICES
+from .utils.budget_currency import BUDGET_CURRENCY_CHOICES
 
 
 class ItineraryForm(forms.ModelForm):

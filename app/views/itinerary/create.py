@@ -1,7 +1,7 @@
 # coding=utf-8
 
 from ...forms import ItineraryForm
-from ...budget_currency import resolve_budget_currency
+from ...utils.budget_currency import resolve_budget_currency
 from .location_form import save_locations_from_post
 from .persistence import save_itinerary_relations_from_post
 from .route_helpers import routing_context

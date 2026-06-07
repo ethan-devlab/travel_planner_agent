@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 import requests
 
-from app.budget_currency import infer_budget_currency
+from travel_planner_agent.app.utils.budget_currency import infer_budget_currency
 from app.models import Event, Itinerary, Tag
 from app.views.itinerary.route_helpers import normalize_routing_service_url
 from app.views.weather import weather as weather_view

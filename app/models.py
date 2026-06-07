@@ -2,7 +2,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 
-from .budget_currency import BUDGET_CURRENCY_CHOICES, format_budget
+from .utils.budget_currency import BUDGET_CURRENCY_CHOICES, format_budget
 
 
 class Tag(models.Model):

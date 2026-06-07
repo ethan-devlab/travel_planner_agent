@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 import requests
 
-from ...budget_currency import BUDGET_CURRENCY_CODES, resolve_budget_currency
+from ...utils.budget_currency import BUDGET_CURRENCY_CODES, resolve_budget_currency
 from ...models import Expense, Itinerary, Location, Status, Tag, TravelMethod
 
 logger = logging.getLogger(__name__)
