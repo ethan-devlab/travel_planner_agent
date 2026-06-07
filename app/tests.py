@@ -517,6 +517,105 @@ class ItineraryEditPersistenceTests(TestCase):
         self.assertContains(response, 'data-location-move="up"')
         self.assertContains(response, 'data-location-move="down"')
 
+    def test_edit_page_renders_ai_check_widget(self):
+        itinerary = self._itinerary()
+
+        response = self.client.get(reverse('edit_itinerary', args=[itinerary.id]))
+
+        self.assertContains(response, 'data-ai-check-widget')
+        self.assertContains(response, reverse('ai_itinerary_check', args=[itinerary.id]))
+        self.assertContains(response, 'data-check-type="overall"')
+        self.assertContains(response, 'data-check-type="budget"')
+
+    def test_ai_itinerary_check_rejects_non_collaborator(self):
+        itinerary = self._itinerary(is_public=True)
+        self.client.logout()
+        self.client.login(username='other', password='password123')
+
+        response = self.client.post(
+            reverse('ai_itinerary_check', args=[itinerary.id]),
+            data=json.dumps({'check_type': 'overall'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['success'])
+
+    def test_ai_itinerary_check_rejects_invalid_check_type(self):
+        itinerary = self._itinerary()
+
+        response = self.client.post(
+            reverse('ai_itinerary_check', args=[itinerary.id]),
+            data=json.dumps({'check_type': 'unknown'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_check_type')
+
+    def test_ai_itinerary_check_invokes_planner_agent_with_saved_itinerary(self):
+        itinerary = self._itinerary()
+
+        class FakeAgent:
+            payload = None
+
+            def invoke(self, payload):
+                self.payload = payload
+                return {
+                    'structured_response': {
+                        'summary': 'Route and budget look reviewable.',
+                        'actions': ['Confirm travel time between saved stops.'],
+                        'key_data': [{'label': 'Itinerary', 'value': str(itinerary.id)}],
+                        'next_steps': ['Review the route order.'],
+                    }
+                }
+
+        fake_agent = FakeAgent()
+        with patch(
+            'app.views.itinerary.edit.build_openai_chat_model',
+            return_value=object(),
+        ) as model_mock, patch(
+            'app.views.itinerary.edit.build_planner_agent',
+            return_value=fake_agent,
+        ) as agent_mock:
+            response = self.client.post(
+                reverse('ai_itinerary_check', args=[itinerary.id]),
+                data=json.dumps({'check_type': 'route'}),
+                content_type='application/json',
+            )
+
+        payload = response.json()
+        prompt = fake_agent.payload['messages'][0]['content']
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['check_type'], 'route')
+        self.assertEqual(payload['summary'], 'Route and budget look reviewable.')
+        self.assertIn(f'itinerary_id={itinerary.id}', prompt)
+        self.assertIn('review_itinerary_on_request', prompt)
+        self.assertIn('Do not ask for confirmation', prompt)
+        model_mock.assert_called_once_with()
+        agent_mock.assert_called_once()
+
+    def test_ai_itinerary_check_returns_safe_configuration_error(self):
+        from app.agents.planner_agent import PlannerAgentConfigurationError
+
+        itinerary = self._itinerary()
+
+        with patch(
+            'app.views.itinerary.edit.build_openai_chat_model',
+            side_effect=PlannerAgentConfigurationError('missing model'),
+        ):
+            response = self.client.post(
+                reverse('ai_itinerary_check', args=[itinerary.id]),
+                data=json.dumps({'check_type': 'budget'}),
+                content_type='application/json',
+            )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(payload['success'])
+        self.assertIn('Planner agent is not configured yet', payload['message'])
+
 
 class CalendarCsrfTests(TestCase):
     def setUp(self):
