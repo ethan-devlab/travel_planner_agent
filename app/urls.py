@@ -23,6 +23,7 @@ urlpatterns = [
     path('shared-itineraries/', my_itinerary.shared_itineraries, name='shared_itineraries'),
     path('my-itineraries/<int:id>/sync-calendar/', my_itinerary.sync_itinerary_calendar, name='sync_itinerary_calendar'),
     path('edit/<int:id>/', edit.edit_itinerary, name='edit_itinerary'),
+    path('edit/<int:id>/ai-check/', edit.ai_itinerary_check, name='ai_itinerary_check'),
     path('delete/<int:id>/', delete.delete_itinerary, name='delete_itinerary'),
     path('exchange/', exchange.exchange_view, name='exchange'),
     path('calendar/', calendar.calendar_view, name='calendar'),

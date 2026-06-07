@@ -182,3 +182,4 @@ env.zip
 node_modules/
 pyproject.toml
 .sonar/
+django_project/

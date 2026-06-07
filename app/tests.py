@@ -517,6 +517,105 @@ class ItineraryEditPersistenceTests(TestCase):
         self.assertContains(response, 'data-location-move="up"')
         self.assertContains(response, 'data-location-move="down"')
 
+    def test_edit_page_renders_ai_check_widget(self):
+        itinerary = self._itinerary()
+
+        response = self.client.get(reverse('edit_itinerary', args=[itinerary.id]))
+
+        self.assertContains(response, 'data-ai-check-widget')
+        self.assertContains(response, reverse('ai_itinerary_check', args=[itinerary.id]))
+        self.assertContains(response, 'data-check-type="overall"')
+        self.assertContains(response, 'data-check-type="budget"')
+
+    def test_ai_itinerary_check_rejects_non_collaborator(self):
+        itinerary = self._itinerary(is_public=True)
+        self.client.logout()
+        self.client.login(username='other', password='password123')
+
+        response = self.client.post(
+            reverse('ai_itinerary_check', args=[itinerary.id]),
+            data=json.dumps({'check_type': 'overall'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['success'])
+
+    def test_ai_itinerary_check_rejects_invalid_check_type(self):
+        itinerary = self._itinerary()
+
+        response = self.client.post(
+            reverse('ai_itinerary_check', args=[itinerary.id]),
+            data=json.dumps({'check_type': 'unknown'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_check_type')
+
+    def test_ai_itinerary_check_invokes_planner_agent_with_saved_itinerary(self):
+        itinerary = self._itinerary()
+
+        class FakeAgent:
+            payload = None
+
+            def invoke(self, payload):
+                self.payload = payload
+                return {
+                    'structured_response': {
+                        'summary': 'Route and budget look reviewable.',
+                        'actions': ['Confirm travel time between saved stops.'],
+                        'key_data': [{'label': 'Itinerary', 'value': str(itinerary.id)}],
+                        'next_steps': ['Review the route order.'],
+                    }
+                }
+
+        fake_agent = FakeAgent()
+        with patch(
+            'app.views.itinerary.edit.build_openai_chat_model',
+            return_value=object(),
+        ) as model_mock, patch(
+            'app.views.itinerary.edit.build_planner_agent',
+            return_value=fake_agent,
+        ) as agent_mock:
+            response = self.client.post(
+                reverse('ai_itinerary_check', args=[itinerary.id]),
+                data=json.dumps({'check_type': 'route'}),
+                content_type='application/json',
+            )
+
+        payload = response.json()
+        prompt = fake_agent.payload['messages'][0]['content']
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['check_type'], 'route')
+        self.assertEqual(payload['summary'], 'Route and budget look reviewable.')
+        self.assertIn(f'itinerary_id={itinerary.id}', prompt)
+        self.assertIn('review_itinerary_on_request', prompt)
+        self.assertIn('Do not ask for confirmation', prompt)
+        model_mock.assert_called_once_with()
+        agent_mock.assert_called_once()
+
+    def test_ai_itinerary_check_returns_safe_configuration_error(self):
+        from app.agents.planner_agent import PlannerAgentConfigurationError
+
+        itinerary = self._itinerary()
+
+        with patch(
+            'app.views.itinerary.edit.build_openai_chat_model',
+            side_effect=PlannerAgentConfigurationError('missing model'),
+        ):
+            response = self.client.post(
+                reverse('ai_itinerary_check', args=[itinerary.id]),
+                data=json.dumps({'check_type': 'budget'}),
+                content_type='application/json',
+            )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(payload['success'])
+        self.assertIn('Planner agent is not configured yet', payload['message'])
+
 
 class CalendarCsrfTests(TestCase):
     def setUp(self):
@@ -1379,6 +1478,150 @@ class PlannerAgentToolRegistryTests(TestCase):
             self.assertIn(group.owner, docs)
             self.assertIn(group.module_path, docs)
             self.assertGreater(len(group.tools), 0)
+
+
+class OwnerBPlannerAgentToolTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='owner-b', password='password123')
+        self.collaborator = User.objects.create_user(username='owner-b-helper', password='password123')
+        self.other_user = User.objects.create_user(username='owner-b-other', password='password123')
+
+    def _itinerary(self, **overrides):
+        values = {
+            'owner': self.owner,
+            'title': 'Owner B Taipei Review',
+            'start_date': '2026-06-01',
+            'end_date': '2026-06-03',
+            'location': 'Taipei',
+            'budget': '30000.00',
+            'description': 'DO_NOT_LOG_SECRET description',
+            'is_public': False,
+            'status': 'draft',
+        }
+        values.update(overrides)
+        return Itinerary.objects.create(**values)
+
+    def test_review_owned_itinerary_returns_safe_review(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary()
+        location = itinerary.locations.create(
+            name='Taipei 101',
+            travel_method='walk',
+            note='DO_NOT_LOG_SECRET route note',
+            visit_date='2026-06-02T09:00:00+08:00',
+            latitude=25.0339,
+            longitude=121.5645,
+            route_order=0,
+        )
+        location.expenses.create(expense_type='ticket', amount='500.00')
+
+        with self.assertLogs('app.agents.tools.review_tools', level='INFO') as logs, planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id, review_focus='budget and route')
+
+        log_text = ' '.join(logs.output)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['tool'], 'review_itinerary_on_request')
+        self.assertEqual(result['itinerary_id'], itinerary.id)
+        self.assertEqual(result['review_summary']['relationship'], 'owner')
+        self.assertEqual(result['review_summary']['route_waypoint_count'], 1)
+        self.assertEqual(result['review_summary']['expense_total'], '500.00')
+        self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
+        self.assertNotIn('DO_NOT_LOG_SECRET', json.dumps(result))
+
+    def test_review_without_itinerary_id_returns_confirmation_response(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request)
+
+        self.assertEqual(result['status'], 'confirmation_required')
+        self.assertEqual(result['error_code'], 'missing_itinerary_context')
+
+    def test_private_itinerary_review_denies_non_collaborator(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary(is_public=False)
+
+        with planner_tool_user(self.other_user):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'itinerary_not_found')
+
+    def test_review_includes_route_and_expense_risk_signals(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary(budget='1000.00')
+        location = itinerary.locations.create(
+            name='Coordinate Missing Stop',
+            travel_method='walk',
+            visit_date='2026-06-02T09:00:00+08:00',
+            latitude=0,
+            longitude=0,
+            route_order=0,
+        )
+        location.expenses.create(expense_type='ticket', amount='1200.00')
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+
+        risk_codes = {risk['code'] for risk in result['risks']}
+        self.assertIn('missing_route_coordinates', risk_codes)
+        self.assertIn('expenses_over_budget', risk_codes)
+        self.assertEqual(result['review_summary']['route_waypoint_count'], 0)
+
+    def test_search_public_itineraries_filters_private_results_out(self):
+        from app.agents.tools.public_itinerary_tools import search_public_itineraries
+
+        public = self._itinerary(title='Public Taipei Trip', is_public=True)
+        self._itinerary(title='Private Taipei Trip', is_public=False)
+
+        result = invoke_tool(search_public_itineraries, query='Taipei')
+
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['count'], 1)
+        self.assertEqual(result['itineraries'][0]['id'], public.id)
+
+    def test_search_public_itineraries_respects_query_location_and_max_budget(self):
+        from app.agents.tools.public_itinerary_tools import search_public_itineraries
+
+        match = self._itinerary(title='Taipei Food Trip', location='Taipei', budget='25000.00', is_public=True)
+        match.tags.add(Tag.objects.create(name='food'))
+        match.locations.create(
+            name='Shilin Night Market',
+            travel_method='walk',
+            visit_date='2026-06-02T19:00:00+08:00',
+            latitude=25.088,
+            longitude=121.524,
+            route_order=0,
+        )
+        self._itinerary(title='Taipei Luxury Trip', location='Taipei', budget='40000.00', is_public=True)
+        self._itinerary(title='Tokyo Food Trip', location='Tokyo', budget='20000.00', is_public=True)
+
+        result = invoke_tool(search_public_itineraries, query='Taipei', location='Shilin', budget='30000')
+
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['count'], 1)
+        self.assertEqual(result['itineraries'][0]['id'], match.id)
+        self.assertEqual(result['itineraries'][0]['tag_names'], ['food'])
+        self.assertEqual(result['itineraries'][0]['public_stop_count'], 1)
+
+    def test_search_public_itineraries_logs_safe_metadata_only(self):
+        from app.agents.tools.public_itinerary_tools import search_public_itineraries
+
+        self._itinerary(title='DO_NOT_LOG_SECRET title', location='Taipei', is_public=True)
+
+        with self.assertLogs('app.agents.tools.public_itinerary_tools', level='INFO') as logs:
+            result = invoke_tool(search_public_itineraries, query='DO_NOT_LOG_SECRET', location='Taipei')
+
+        log_text = ' '.join(logs.output)
+        self.assertEqual(result['status'], 'ok')
+        self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
 
 
 class ItineraryDiscoveryViewTests(TestCase):
