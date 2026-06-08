@@ -1623,6 +1623,142 @@ class OwnerBPlannerAgentToolTests(TestCase):
         self.assertEqual(result['status'], 'ok')
         self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
 
+    def test_copy_public_itinerary_requires_authenticated_context(self):
+        from app.agents.tools.public_itinerary_tools import copy_public_itinerary_to_my_items
+
+        result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=123)
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'authentication_required')
+
+    def test_copy_public_itinerary_creates_private_copy(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.public_itinerary_tools import copy_public_itinerary_to_my_items
+
+        source = self._itinerary(
+            title='Japan Public Trip',
+            location='Tokyo',
+            budget='50000.00',
+            budget_currency='JPY',
+            is_public=True,
+            status='completed',
+        )
+
+        with planner_tool_user(self.other_user):
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+
+        source.refresh_from_db()
+        new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['tool'], 'copy_public_itinerary_to_my_items')
+        self.assertEqual(result['source_itinerary_id'], source.id)
+        self.assertEqual(result['title'], 'Japan Public Trip')
+        self.assertEqual(result['message'], '已將公共行程複製到你的項目。')
+        self.assertEqual(new_itinerary.title, source.title)
+        self.assertEqual(new_itinerary.start_date, source.start_date)
+        self.assertEqual(new_itinerary.end_date, source.end_date)
+        self.assertEqual(new_itinerary.location, source.location)
+        self.assertEqual(new_itinerary.budget, source.budget)
+        self.assertEqual(new_itinerary.budget_currency, source.budget_currency)
+        self.assertEqual(new_itinerary.description, source.description)
+        self.assertEqual(new_itinerary.status, 'draft')
+
+    def test_copy_public_itinerary_rejects_private_source(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.public_itinerary_tools import copy_public_itinerary_to_my_items
+
+        source = self._itinerary(is_public=False)
+
+        with planner_tool_user(self.other_user):
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'public_itinerary_not_found')
+        self.assertFalse(Itinerary.objects.filter(owner=self.other_user, title=source.title).exists())
+
+    def test_copy_public_itinerary_owner_is_bound_user(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.public_itinerary_tools import copy_public_itinerary_to_my_items
+
+        source = self._itinerary(is_public=True)
+
+        with planner_tool_user(self.other_user):
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+
+        new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
+        self.assertEqual(new_itinerary.owner, self.other_user)
+
+    def test_copy_public_itinerary_result_is_not_public(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.public_itinerary_tools import copy_public_itinerary_to_my_items
+
+        source = self._itinerary(is_public=True)
+
+        with planner_tool_user(self.other_user):
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+
+        new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
+        self.assertFalse(new_itinerary.is_public)
+
+    def test_copy_public_itinerary_copies_locations_and_expenses(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.public_itinerary_tools import copy_public_itinerary_to_my_items
+
+        source = self._itinerary(title='Nested Public Trip', is_public=True)
+        first = source.locations.create(
+            name='Tokyo Tower',
+            travel_method='train',
+            note='Observation deck',
+            visit_date='2026-06-02T09:00:00+08:00',
+            latitude=35.6586,
+            longitude=139.7454,
+            route_order=0,
+        )
+        first.expenses.create(expense_type='ticket', amount='1200.00')
+        first.expenses.create(expense_type='transport', amount='300.00')
+        source.locations.create(
+            name='Senso-ji',
+            travel_method='walk',
+            note='Temple visit',
+            visit_date='2026-06-02T13:00:00+08:00',
+            latitude=35.7148,
+            longitude=139.7967,
+            route_order=1,
+        )
+
+        with planner_tool_user(self.other_user):
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+
+        new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
+        new_locations = list(new_itinerary.locations.prefetch_related('expenses'))
+        self.assertEqual(result['location_count'], 2)
+        self.assertEqual(result['expense_count'], 2)
+        self.assertEqual([location.name for location in new_locations], ['Tokyo Tower', 'Senso-ji'])
+        self.assertEqual(new_locations[0].travel_method, 'train')
+        self.assertEqual(new_locations[0].note, 'Observation deck')
+        self.assertAlmostEqual(new_locations[0].latitude, 35.6586)
+        self.assertAlmostEqual(new_locations[0].longitude, 139.7454)
+        self.assertEqual(new_locations[0].route_order, 0)
+        self.assertEqual(
+            list(new_locations[0].expenses.order_by('expense_type').values_list('expense_type', 'amount')),
+            [('ticket', Decimal('1200.00')), ('transport', Decimal('300.00'))],
+        )
+
+    def test_copy_public_itinerary_copies_tags_without_collaborators(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.public_itinerary_tools import copy_public_itinerary_to_my_items
+
+        source = self._itinerary(is_public=True)
+        source.tags.add(Tag.objects.create(name='food'), Tag.objects.create(name='family'))
+        source.collaborators.add(self.collaborator)
+
+        with planner_tool_user(self.other_user):
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+
+        new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
+        self.assertEqual(set(new_itinerary.tags.values_list('name', flat=True)), {'food', 'family'})
+        self.assertEqual(new_itinerary.collaborators.count(), 0)
+
 
 class ItineraryDiscoveryViewTests(TestCase):
     def setUp(self):

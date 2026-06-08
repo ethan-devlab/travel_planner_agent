@@ -3,13 +3,20 @@
 import logging
 from decimal import Decimal, InvalidOperation
 
+from django.db import transaction
 from django.db.models import Q
+from pydantic import BaseModel, Field
 
-from app.models import Itinerary
+from app.models import Expense, Itinerary, Location, Status
 
+from ..tool_context import get_current_planner_user
 from .common import planner_tool
 
 logger = logging.getLogger(__name__)
+
+
+class CopyPublicItineraryArgs(BaseModel):
+    public_itinerary_id: int = Field(description="The id of the public itinerary to copy into the current user's items.")
 
 
 @planner_tool
@@ -62,6 +69,95 @@ def search_public_itineraries(query="", location="", budget=None):
     }
 
 
+@planner_tool(args_schema=CopyPublicItineraryArgs)
+def copy_public_itinerary_to_my_items(public_itinerary_id: int) -> dict:
+    """Copy a public itinerary into the authenticated user's private items.
+
+    Use this tool when the user asks to add a public itinerary to my items, apply
+    it to my itinerary, copy a public itinerary, or add it to my itinerary. If the
+    user only gives a name and multiple public itineraries match, or the intended
+    itinerary is unclear, ask the user to confirm which public itinerary first.
+    """
+    tool_name = "copy_public_itinerary_to_my_items"
+    user = get_current_planner_user()
+    if user is None or not getattr(user, "is_authenticated", False):
+        logger.warning("Owner B tool %s rejected unauthenticated access.", tool_name)
+        return _error(tool_name, "authentication_required", "Sign in before copying a public itinerary.")
+
+    try:
+        itinerary_pk = int(public_itinerary_id)
+    except (TypeError, ValueError):
+        return _error(tool_name, "invalid_public_itinerary_id", "public_itinerary_id must be an integer.")
+
+    source = (
+        Itinerary.objects.filter(pk=itinerary_pk, is_public=True)
+        .prefetch_related("tags", "locations__expenses")
+        .first()
+    )
+    if not source:
+        logger.warning("Owner B tool %s could not find public itinerary %s.", tool_name, itinerary_pk)
+        return _error(tool_name, "public_itinerary_not_found", "No public itinerary was found.")
+
+    with transaction.atomic():
+        source_locations = list(source.locations.all())
+        new_itinerary = Itinerary.objects.create(
+            owner=user,
+            title=source.title,
+            start_date=source.start_date,
+            end_date=source.end_date,
+            location=source.location,
+            budget=source.budget,
+            budget_currency=source.budget_currency,
+            description=source.description,
+            status=Status.DRAFT,
+            is_public=False,
+        )
+        new_itinerary.tags.set(source.tags.all())
+
+        expense_count = 0
+        for source_location in source_locations:
+            new_location = Location.objects.create(
+                itinerary=new_itinerary,
+                name=source_location.name,
+                visit_date=source_location.visit_date,
+                travel_method=source_location.travel_method,
+                latitude=source_location.latitude,
+                longitude=source_location.longitude,
+                route_order=source_location.route_order,
+                note=source_location.note,
+            )
+            expenses = [
+                Expense(
+                    location=new_location,
+                    expense_type=source_expense.expense_type,
+                    amount=source_expense.amount,
+                )
+                for source_expense in source_location.expenses.all()
+            ]
+            Expense.objects.bulk_create(expenses)
+            expense_count += len(expenses)
+
+    logger.info(
+        "Owner B tool %s copied public itinerary %s to itinerary %s for user %s with %s locations and %s expenses.",
+        tool_name,
+        source.id,
+        new_itinerary.id,
+        user.id,
+        len(source_locations),
+        expense_count,
+    )
+    return {
+        "status": "ok",
+        "tool": tool_name,
+        "source_itinerary_id": source.id,
+        "new_itinerary_id": new_itinerary.id,
+        "title": new_itinerary.title,
+        "location_count": len(source_locations),
+        "expense_count": expense_count,
+        "message": "已將公共行程複製到你的項目。",
+    }
+
+
 def _parse_budget(value):
     if value in (None, ""):
         return None, None
@@ -100,5 +196,6 @@ def _error(tool_name, error_code, message):
 
 TOOLS = (
     search_public_itineraries,
+    copy_public_itinerary_to_my_items,
 )
 
