@@ -1,20 +1,35 @@
 {% extends "common/base.html" %}
 
-{% block title %}planner agent{% endblock %}
+{% block title %}規劃助手{% endblock %}
 
 {% block content %}
 <div class="planner-agent-page">
-    <h2 class="page-header">
-        <i class="ri-robot-2-line"></i>
-        planner agent
-    </h2>
+    <section class="planner-intro">
+        <div class="planner-intro-copy">
+            <p class="planner-eyebrow">AI 規劃助手</p>
+            <h2 class="planner-intro-title">把旅行想法整理成下一步</h2>
+            <p class="planner-intro-text">
+                你可以直接告訴我目的地、日期、預算，或貼上一段還沒整理好的旅行想法。
+                我會幫你把行程、查詢和行事曆串起來，變成可以直接執行的安排。
+            </p>
+        </div>
+        <div class="planner-intro-note">
+            <div class="planner-note-title">你可以直接這樣問</div>
+            <ul class="planner-example-list">
+                <li class="planner-example-item">幫我規劃 5 天東京自由行，預算 4 萬，想多排美食。</li>
+                <li class="planner-example-item">這個行程會不會太趕？幫我看一下。</li>
+                <li class="planner-example-item">出發前幫我看台北天氣和日圓匯率。</li>
+            </ul>
+        </div>
+    </section>
 
     <div class="planner-chat-layout">
         <section class="planner-chat-section">
             <h5 class="section-title">
                 <i class="ri-chat-3-line"></i>
-                Agent chat
+                跟我說你的需求
             </h5>
+            <p class="section-subtitle">直接輸入你的想法，我會幫你整理成清楚的下一步。</p>
 
             <div class="planner-message-list" id="planner-message-list" aria-live="polite">
                 {% if chat_history %}
@@ -25,7 +40,7 @@
                 {% else %}
                     <div class="empty-state" id="planner-empty-state">
                         <div class="empty-state-icon"><i class="ri-robot-2-line"></i></div>
-                        <p>Planner agent is ready.</p>
+                        <p>規劃助手已就緒。</p>
                     </div>
                 {% endif %}
             </div>
@@ -35,14 +50,14 @@
                 <div class="form-group">
                     <label class="form-label" for="planner-agent-prompt">
                         <i class="ri-message-3-line"></i>
-                        Prompt
+                        告訴我你想做什麼
                     </label>
-                    <textarea id="planner-agent-prompt" name="prompt" class="form-control" rows="5"></textarea>
+                    <textarea id="planner-agent-prompt" name="prompt" class="form-control" rows="5" placeholder="例如：幫我規劃 5 天東京自由行，預算 4 萬。"></textarea>
                 </div>
                 <div class="submit-section">
                     <button type="submit" class="btn btn-primary" id="planner-agent-submit">
                         <i class="ri-send-plane-line"></i>
-                        Send
+                        開始規劃
                     </button>
                 </div>
             </form>
@@ -50,17 +65,21 @@
 
         <aside class="planner-scope-section">
             <h5 class="section-title">
-                <i class="ri-tools-line"></i>
-                Tool groups
+                <i class="ri-compass-3-line"></i>
+                我可以幫你
             </h5>
-            <div class="planner-tool-list">
-                {% for group in tool_groups %}
-                    <div class="planner-tool-item">
-                        <strong>{{ group.name }}</strong>
-                        <div class="planner-tool-owner">{{ group.owner }}</div>
-                    </div>
+            <div class="planner-capability-list">
+                {% for capability in planner_capabilities %}
+                    <article class="planner-capability-item">
+                        <div class="planner-capability-icon"><i class="{{ capability.icon }}"></i></div>
+                        <div class="planner-capability-body">
+                            <strong class="planner-capability-title">{{ capability.title }}</strong>
+                            <div class="planner-capability-description">{{ capability.description }}</div>
+                        </div>
+                    </article>
                 {% endfor %}
             </div>
+            <p class="planner-scope-note">如果你不確定要怎麼開始，先告訴我目的地和日期就可以。</p>
         </aside>
     </div>
 </div>
@@ -70,7 +89,7 @@
     const plannerPrompt = document.getElementById('planner-agent-prompt');
     const plannerSubmit = document.getElementById('planner-agent-submit');
     const plannerMessages = document.getElementById('planner-message-list');
-    const defaultErrorSummary = 'Planner agent could not complete the request safely. Please try again later.';
+    const defaultErrorSummary = '這次我沒能安全完成，請稍後再試。';
 
     function appendPlannerMessage(role, text) {
         const emptyState = document.getElementById('planner-empty-state');
@@ -91,8 +110,8 @@
         message.innerHTML = `
             <div class="planner-card planner-card-loading">
                 <div class="planner-card-section">
-                    <strong>整理中</strong>
-                    <p class="planner-card-summary">Planner agent 正在整理結構化回覆...</p>
+                    <strong>我正在整理</strong>
+                    <p class="planner-card-summary">我先把你的需求整理成清楚的回覆，請稍等一下。</p>
                 </div>
             </div>
         `;

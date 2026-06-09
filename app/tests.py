@@ -614,7 +614,7 @@ class ItineraryEditPersistenceTests(TestCase):
         payload = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertFalse(payload['success'])
-        self.assertIn('Planner agent is not configured yet', payload['message'])
+        self.assertIn('規劃助手目前尚未完成設定', payload['message'])
 
 
 class CalendarCsrfTests(TestCase):
@@ -780,8 +780,9 @@ class PlannerAgentViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'href="/planner-agent/"')
-        self.assertContains(response, 'planner agent')
-        self.assertContains(response, 'itinerary_management')
+        self.assertContains(response, '規劃助手')
+        self.assertContains(response, '我可以幫你')
+        self.assertNotContains(response, 'itinerary_management')
         self.assertContains(response, 'appendPlannerLoadingCard')
         self.assertContains(response, "parsedEvent.name === 'result'")
 
@@ -1003,7 +1004,7 @@ class PlannerAgentViewTests(TestCase):
             response = self.client.post(reverse('planner_agent'), {'prompt': 'Plan a Taipei food trip'})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Planner agent is not configured yet')
+        self.assertContains(response, '規劃助手目前尚未完成設定')
 
 
 class PlannerAgentFactoryTests(TestCase):
@@ -1023,16 +1024,16 @@ class PlannerAgentFactoryTests(TestCase):
         self.assertIs(response_format.schema, PlannerStructuredResponse)
 
 
-class OwnerAItineraryManagementTests(TestCase):
+class ItineraryManagementTests(TestCase):
     def setUp(self):
-        self.owner = User.objects.create_user(username='owner-a', password='password123')
-        self.collaborator = User.objects.create_user(username='owner-a-helper', password='password123')
-        self.other_user = User.objects.create_user(username='owner-a-other', password='password123')
+        self.owner = User.objects.create_user(username='trip-owner', password='password123')
+        self.collaborator = User.objects.create_user(username='trip-helper', password='password123')
+        self.other_user = User.objects.create_user(username='trip-other', password='password123')
 
     def _itinerary(self, **overrides):
         values = {
             'owner': self.owner,
-            'title': 'Owner A Trip',
+            'title': 'Taipei Trip',
             'start_date': '2026-06-01',
             'end_date': '2026-06-03',
             'location': 'Taipei',
@@ -1053,7 +1054,7 @@ class OwnerAItineraryManagementTests(TestCase):
             'status': 'draft',
             'is_public': False,
             'tags': ['food', 'food', 'weekend'],
-            'collaborators': ['owner-a-helper'],
+            'collaborators': ['trip-helper'],
             'locations': [{
                 'name': 'Museum',
                 'travel_method': 'walk',
@@ -1084,7 +1085,7 @@ class OwnerAItineraryManagementTests(TestCase):
         self.assertEqual(result['action'], 'created')
         self.assertEqual(itinerary.owner, self.owner)
         self.assertEqual(list(itinerary.tags.values_list('name', flat=True)), ['food', 'weekend'])
-        self.assertEqual(list(itinerary.collaborators.values_list('username', flat=True)), ['owner-a-helper'])
+        self.assertEqual(list(itinerary.collaborators.values_list('username', flat=True)), ['trip-helper'])
         self.assertEqual(location.expenses.get().amount, Decimal('15.50'))
         self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
 
@@ -1473,23 +1474,23 @@ class PlannerAgentToolRegistryTests(TestCase):
         docs = (settings.BASE_DIR / 'docs' / 'planner_agent_tools.md').read_text(encoding='utf-8')
 
         self.assertEqual(len(TOOL_GROUPS), 5)
+        self.assertNotIn('Owner ', docs)
         for group in TOOL_GROUPS:
             self.assertIn(group.name, docs)
-            self.assertIn(group.owner, docs)
             self.assertIn(group.module_path, docs)
             self.assertGreater(len(group.tools), 0)
 
 
-class OwnerBPlannerAgentToolTests(TestCase):
+class PlannerAgentToolTests(TestCase):
     def setUp(self):
-        self.owner = User.objects.create_user(username='owner-b', password='password123')
-        self.collaborator = User.objects.create_user(username='owner-b-helper', password='password123')
-        self.other_user = User.objects.create_user(username='owner-b-other', password='password123')
+        self.owner = User.objects.create_user(username='review-owner', password='password123')
+        self.collaborator = User.objects.create_user(username='review-helper', password='password123')
+        self.other_user = User.objects.create_user(username='review-other', password='password123')
 
     def _itinerary(self, **overrides):
         values = {
             'owner': self.owner,
-            'title': 'Owner B Taipei Review',
+            'title': 'Taipei Review',
             'start_date': '2026-06-01',
             'end_date': '2026-06-03',
             'location': 'Taipei',
@@ -1943,10 +1944,10 @@ class ItineraryTemplateViewTests(TestCase):
         self.assertEqual(response.url, reverse('template_list'))
 
 
-class OwnerCTravelContextToolTests(TestCase):
+class TravelContextToolTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='owner-c-user', password='password123')
-        self.client.login(username='owner-c-user', password='password123')
+        self.user = User.objects.create_user(username='travel-user', password='password123')
+        self.client.login(username='travel-user', password='password123')
 
     def test_lookup_weather_reuses_existing_service_and_formats_safe_response(self):
         from app.agents.tools.travel_context_tools import lookup_weather
@@ -2059,7 +2060,7 @@ class OwnerCTravelContextToolTests(TestCase):
         self.assertTrue(any('Provider unavailable' in str(message) for message in messages))
 
 
-class OwnerCCalendarManagementToolTests(TestCase):
+class CalendarManagementToolTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='calendar-tool-owner', password='password123')
         self.other_user = User.objects.create_user(username='calendar-tool-other', password='password123')
