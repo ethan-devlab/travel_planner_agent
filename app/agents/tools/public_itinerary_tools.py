@@ -1,4 +1,4 @@
-"""Public itinerary lookup tools for Owner B."""
+"""Public itinerary lookup tools."""
 
 import logging
 from decimal import Decimal, InvalidOperation
@@ -27,7 +27,7 @@ def search_public_itineraries(query="", location="", budget=None):
     normalized_location = str(location or "").strip()
     max_budget, budget_error = _parse_budget(budget)
     if budget_error:
-        logger.warning("Owner B tool %s rejected invalid budget filter.", tool_name)
+        logger.warning("public-itinerary lookup tool %s rejected invalid budget filter.", tool_name)
         return _error(tool_name, "invalid_budget", "budget must be a non-negative number when provided.")
 
     itineraries = Itinerary.objects.filter(is_public=True)
@@ -49,7 +49,7 @@ def search_public_itineraries(query="", location="", budget=None):
     )
     results = [_public_itinerary_summary(itinerary) for itinerary in itineraries]
     logger.info(
-        "Owner B tool %s returned %s public itineraries for query length %s, location length %s, budget provided=%s.",
+        "public-itinerary lookup tool %s returned %s public itineraries for query length %s, location length %s, budget provided=%s.",
         tool_name,
         len(results),
         len(normalized_query),
@@ -81,7 +81,7 @@ def copy_public_itinerary_to_my_items(public_itinerary_id: int) -> dict:
     tool_name = "copy_public_itinerary_to_my_items"
     user = get_current_planner_user()
     if user is None or not getattr(user, "is_authenticated", False):
-        logger.warning("Owner B tool %s rejected unauthenticated access.", tool_name)
+        logger.warning("public-itinerary lookup tool %s rejected unauthenticated access.", tool_name)
         return _error(tool_name, "authentication_required", "Sign in before copying a public itinerary.")
 
     try:
@@ -95,7 +95,7 @@ def copy_public_itinerary_to_my_items(public_itinerary_id: int) -> dict:
         .first()
     )
     if not source:
-        logger.warning("Owner B tool %s could not find public itinerary %s.", tool_name, itinerary_pk)
+        logger.warning("public-itinerary lookup tool %s could not find public itinerary %s.", tool_name, itinerary_pk)
         return _error(tool_name, "public_itinerary_not_found", "No public itinerary was found.")
 
     with transaction.atomic():
@@ -138,7 +138,7 @@ def copy_public_itinerary_to_my_items(public_itinerary_id: int) -> dict:
             expense_count += len(expenses)
 
     logger.info(
-        "Owner B tool %s copied public itinerary %s to itinerary %s for user %s with %s locations and %s expenses.",
+        "public-itinerary lookup tool %s copied public itinerary %s to itinerary %s for user %s with %s locations and %s expenses.",
         tool_name,
         source.id,
         new_itinerary.id,
@@ -198,4 +198,3 @@ TOOLS = (
     search_public_itineraries,
     copy_public_itinerary_to_my_items,
 )
-

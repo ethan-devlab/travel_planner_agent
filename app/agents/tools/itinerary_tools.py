@@ -1,4 +1,4 @@
-"""Owner A itinerary suggestion and management tools."""
+"""Itinerary suggestion and management tools."""
 
 from pydantic import BaseModel, Field
 

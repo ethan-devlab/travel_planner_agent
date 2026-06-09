@@ -1,4 +1,4 @@
-"""Explicit itinerary review tools for Owner B."""
+"""Explicit itinerary review tools."""
 
 import logging
 from decimal import Decimal
@@ -29,7 +29,7 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
 
     itinerary = _reviewable_itinerary_for_user(user, itinerary_pk)
     if itinerary is None:
-        logger.warning("Owner B tool %s denied review for itinerary %s and user %s.", tool_name, itinerary_pk, user.id)
+        logger.warning("review tool %s denied review for itinerary %s and user %s.", tool_name, itinerary_pk, user.id)
         return _error(tool_name, "itinerary_not_found", "No reviewable itinerary was found.")
 
     locations = list(itinerary.locations.prefetch_related("expenses").all())
@@ -39,7 +39,7 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
     expense_total = _expense_total(locations)
 
     logger.info(
-        "Owner B tool %s reviewed itinerary %s for user %s with %s locations, %s waypoints, focus length %s.",
+        "review tool %s reviewed itinerary %s for user %s with %s locations, %s waypoints, focus length %s.",
         tool_name,
         itinerary.id,
         user.id,
@@ -77,7 +77,7 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
 
 def _require_authenticated_user(user, tool_name):
     if user is None or not getattr(user, "is_authenticated", False):
-        logger.warning("Owner B tool %s rejected unauthenticated access.", tool_name)
+        logger.warning("review tool %s rejected unauthenticated access.", tool_name)
         return _error(tool_name, "authentication_required", "Sign in before using review tools.")
     return None
 
@@ -183,4 +183,3 @@ def _error(tool_name, error_code, message):
 TOOLS = (
     review_itinerary_on_request,
 )
-

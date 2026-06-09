@@ -1,4 +1,4 @@
-"""Calendar management tools for Owner C."""
+"""Calendar management tools."""
 
 import datetime as dt
 import json
@@ -42,7 +42,7 @@ def list_calendar_events(start_date="", end_date=""):
     start_value, start_error = _parse_optional_date(start_date)
     end_value, end_error = _parse_optional_date(end_date)
     if start_error or end_error:
-        logger.warning("Owner C tool %s rejected invalid list range.", tool_name)
+        logger.warning("calendar tool %s rejected invalid list range.", tool_name)
         return _error(tool_name, "invalid_date", "start_date and end_date must be YYYY-MM-DD when provided.")
     if start_value and end_value and start_value > end_value:
         return _error(tool_name, "invalid_date_range", "start_date must be on or before end_date.")
@@ -64,7 +64,7 @@ def list_calendar_events(start_date="", end_date=""):
         for event in queryset
     ]
     logger.info(
-        "Owner C tool %s returned %s events for user %s with range start=%s end=%s.",
+        "calendar tool %s returned %s events for user %s with range start=%s end=%s.",
         tool_name,
         len(events),
         user.id,
@@ -107,16 +107,16 @@ def create_calendar_event(event_payload=None):
     if not event_name:
         return _error(tool_name, "invalid_event_name", "eventName cannot be blank.")
     if date_error:
-        logger.warning("Owner C tool %s rejected invalid create date for user %s.", tool_name, user.id)
+        logger.warning("calendar tool %s rejected invalid create date for user %s.", tool_name, user.id)
         return _error(tool_name, "invalid_date", "date must be YYYY-MM-DD.")
     if color not in ALLOWED_EVENT_COLORS:
-        logger.warning("Owner C tool %s rejected invalid color for user %s.", tool_name, user.id)
+        logger.warning("calendar tool %s rejected invalid color for user %s.", tool_name, user.id)
         return _error(tool_name, "invalid_color", "color must be one of orange, blue, yellow, or green.")
 
     with transaction.atomic():
         event = Event.objects.create(owner=user, event_name=event_name, date=event_date, color=color)
 
-    logger.info("Owner C tool %s created event %s for user %s.", tool_name, event.id, user.id)
+    logger.info("calendar tool %s created event %s for user %s.", tool_name, event.id, user.id)
     return {
         "status": "ok",
         "tool": tool_name,
@@ -146,13 +146,13 @@ def delete_calendar_event(event_id=None):
 
     event = Event.objects.filter(owner=user, pk=event_pk).first()
     if event is None:
-        logger.warning("Owner C tool %s denied delete for event %s and user %s.", tool_name, event_pk, user.id)
+        logger.warning("calendar tool %s denied delete for event %s and user %s.", tool_name, event_pk, user.id)
         return _error(tool_name, "event_not_found", "No owned event was found.")
 
     with transaction.atomic():
         event.delete()
 
-    logger.info("Owner C tool %s deleted event %s for user %s.", tool_name, event_pk, user.id)
+    logger.info("calendar tool %s deleted event %s for user %s.", tool_name, event_pk, user.id)
     return {
         "status": "ok",
         "tool": tool_name,
@@ -163,7 +163,7 @@ def delete_calendar_event(event_id=None):
 
 def _require_authenticated_user(user, tool_name):
     if user is None or not getattr(user, "is_authenticated", False):
-        logger.warning("Owner C tool %s rejected unauthenticated access.", tool_name)
+        logger.warning("calendar tool %s rejected unauthenticated access.", tool_name)
         return _error(tool_name, "authentication_required", "Sign in before using calendar tools.")
     return None
 
