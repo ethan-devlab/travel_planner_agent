@@ -3,6 +3,7 @@
 import datetime as dt
 import json
 import logging
+import uuid
 
 from django.db import transaction
 from pydantic import BaseModel, Field
@@ -55,7 +56,7 @@ def list_calendar_events(start_date="", end_date=""):
 
     events = [
         {
-            "id": event.id,
+            "id": str(event.id),
             "eventName": event.event_name,
             "date": event.date.isoformat(),
             "color": event.color,
@@ -121,7 +122,7 @@ def create_calendar_event(event_payload=None):
         "status": "ok",
         "tool": tool_name,
         "event": {
-            "id": event.id,
+            "id": str(event.id),
             "eventName": event.event_name,
             "date": event.date.isoformat(),
             "color": event.color,
@@ -139,10 +140,9 @@ def delete_calendar_event(event_id=None):
     if auth_error:
         return auth_error
 
-    try:
-        event_pk = int(event_id)
-    except (TypeError, ValueError):
-        return _error(tool_name, "invalid_event_id", "event_id must be an integer.")
+    event_pk, id_error = _parse_uuid(event_id)
+    if id_error:
+        return _error(tool_name, "invalid_event_id", "event_id must be a valid UUID.")
 
     event = Event.objects.filter(owner=user, pk=event_pk).first()
     if event is None:
@@ -156,9 +156,16 @@ def delete_calendar_event(event_id=None):
     return {
         "status": "ok",
         "tool": tool_name,
-        "event_id": event_pk,
+        "event_id": str(event_pk),
         "action": "deleted",
     }
+
+
+def _parse_uuid(value):
+    try:
+        return uuid.UUID(str(value)), None
+    except (TypeError, ValueError, AttributeError):
+        return None, "invalid_uuid"
 
 
 def _require_authenticated_user(user, tool_name):

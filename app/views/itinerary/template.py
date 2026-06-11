@@ -2,7 +2,7 @@
 
 from ...forms import ItineraryForm
 from ...models import Itinerary, Location, Expense
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_http_methods
@@ -24,7 +24,7 @@ def copy_itinerary(request):
         id_ = request.POST.get('itinerary_id')
 
         # Get the original itinerary
-        owner = get_object_or_404(User, username=owner_username)
+        owner = get_object_or_404(get_user_model(), username=owner_username)
         original_itinerary = get_object_or_404(Itinerary, pk=id_, owner=owner)
 
         try:
