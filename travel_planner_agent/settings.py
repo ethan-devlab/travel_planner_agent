@@ -140,11 +140,13 @@ GEOCODING_URL = os.getenv('GEOCODING_URL', 'https://api.openweathermap.org/geo/1
 CURRENT_WEATHER_URL = os.getenv('CURRENT_WEATHER_URL', 'https://api.openweathermap.org/data/2.5/weather')
 FORECAST_URL = os.getenv('FORECAST_URL', 'https://api.openweathermap.org/data/2.5/forecast')
 REQUEST_TIMEOUT_SECONDS = int(os.getenv('REQUEST_TIMEOUT_SECONDS', 5))
+USER_ID_UUID5_NAMESPACE = os.environ['USER_ID_UUID5_NAMESPACE']
 
 EXCHANGE_API_KEY=os.getenv('EXCHANGE_API_KEY', '')
 WEATHER_API_KEY=os.getenv('WEATHER_API_KEY', '')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 PLANNER_AGENT_MODEL = os.getenv('MODEL', '')
+AUTH_USER_MODEL = 'app.User'
 
 # Keep all runtime logs under app/logs for consistent traceback and audit.
 LOGGING = {

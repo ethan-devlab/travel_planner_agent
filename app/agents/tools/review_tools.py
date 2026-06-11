@@ -1,6 +1,7 @@
 """Explicit itinerary review tools."""
 
 import logging
+import uuid
 from decimal import Decimal
 
 from django.db.models import Q
@@ -50,7 +51,7 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
     return {
         "status": "ok",
         "tool": tool_name,
-        "itinerary_id": itinerary.id,
+        "itinerary_id": str(itinerary.id),
         "review_summary": {
             "title": itinerary.title,
             "destination": itinerary.location,
@@ -83,17 +84,17 @@ def _require_authenticated_user(user, tool_name):
 
 
 def _parse_itinerary_id(itinerary_id, tool_name):
-    try:
-        itinerary_pk = int(itinerary_id)
-    except (TypeError, ValueError):
+    if not itinerary_id:
         return None, {
             "status": "confirmation_required",
             "tool": tool_name,
             "error_code": "missing_itinerary_context",
             "message": "Please specify which itinerary to review before I run an itinerary review.",
         }
-    if itinerary_pk <= 0:
-        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be a positive integer.")
+    try:
+        itinerary_pk = uuid.UUID(str(itinerary_id))
+    except (TypeError, ValueError, AttributeError):
+        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be a valid UUID.")
     return itinerary_pk, None
 
 
