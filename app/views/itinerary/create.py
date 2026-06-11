@@ -1,6 +1,7 @@
 # coding=utf-8
 
 from ...forms import ItineraryForm
+from ...demo import is_demo_user
 from ...utils.budget_currency import resolve_budget_currency
 from .location_form import save_locations_from_post
 from .persistence import save_itinerary_relations_from_post
@@ -29,6 +30,8 @@ def create_itinerary(request):
                     itinerary.location,
                     form.cleaned_data.get("budget_currency_choice"),
                 )
+                if is_demo_user(request.user):
+                    itinerary.is_public = False
                 itinerary.save()
                 form.save_m2m()
                 save_itinerary_relations_from_post(itinerary, request.POST, request)

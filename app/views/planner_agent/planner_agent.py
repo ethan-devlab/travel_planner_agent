@@ -2,10 +2,11 @@ import json
 import logging
 
 from django.contrib.auth.decorators import login_required
-from django.http import HttpResponseBadRequest, StreamingHttpResponse
+from django.http import HttpResponseBadRequest, JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods, require_POST
 
+from ...demo import consume_demo_ai_quota
 from ...agents.planner_agent import (
     PlannerAgentConfigurationError,
     build_openai_chat_model,
@@ -67,7 +68,12 @@ def planner_agent_view(request):
         prompt = request.POST.get("prompt", "").strip()
         if prompt:
             logger.info("Planner agent received prompt with %s characters.", len(prompt))
-            agent_response = _run_planner_agent(prompt, request.user, chat_history)
+            quota_result = consume_demo_ai_quota(request.user)
+            if quota_result.allowed:
+                agent_response = _run_planner_agent(prompt, request.user, chat_history)
+            else:
+                agent_response = quota_result.message
+                logger.warning("Planner agent rejected demo prompt due to %s.", quota_result.error_code)
             chat_history = _append_planner_history(request, prompt, agent_response)
 
     return render(request, "planner_agent/index.html", {
@@ -84,6 +90,18 @@ def planner_agent_stream_view(request):
     prompt = request.POST.get("prompt", "").strip()
     if not prompt:
         return HttpResponseBadRequest("Prompt is required.")
+
+    quota_result = consume_demo_ai_quota(request.user)
+    if not quota_result.allowed:
+        logger.warning("Planner agent stream rejected demo prompt due to %s.", quota_result.error_code)
+        response = JsonResponse({
+            "success": False,
+            "error": quota_result.error_code,
+            "message": quota_result.message,
+        }, status=quota_result.status_code)
+        if quota_result.retry_after:
+            response["Retry-After"] = str(quota_result.retry_after)
+        return response
 
     chat_history = _planner_history(request)
     logger.info("Planner agent stream received prompt with %s characters.", len(prompt))

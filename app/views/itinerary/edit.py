@@ -4,6 +4,7 @@ import json
 import logging
 
 from ...forms import ItineraryForm
+from ...demo import consume_demo_ai_quota, is_demo_user
 from ...utils.budget_currency import resolve_budget_currency
 from ...models import Itinerary
 from ...agents.planner_agent import (
@@ -89,6 +90,8 @@ def edit_itinerary(request, id):
                     form.cleaned_data.get("budget_currency_choice"),
                     fallback=itinerary.budget_currency,
                 )
+                if is_demo_user(request.user):
+                    itinerary.is_public = False
                 itinerary.save()
                 save_itinerary_relations_from_post(itinerary, request.POST, request)
                 save_locations_from_post(itinerary, request.POST, clear_existing=True)
@@ -139,6 +142,14 @@ def ai_itinerary_check(request, id):
             "error": "invalid_check_type",
             "message": "check_type must be one of: overall, stops, route, budget.",
         }, status=400)
+
+    quota_result = consume_demo_ai_quota(request.user)
+    if not quota_result.allowed:
+        return JsonResponse({
+            "success": False,
+            "error": quota_result.error_code,
+            "message": quota_result.message,
+        }, status=quota_result.status_code)
 
     focus = AI_ITINERARY_CHECK_FOCUS[check_type]
     evidence_instructions = AI_ITINERARY_CHECK_EVIDENCE_INSTRUCTIONS[check_type]

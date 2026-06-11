@@ -11,6 +11,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+import requests
+
+from ...demo import is_demo_user
 from ...utils.budget_currency import BUDGET_CURRENCY_CODES, resolve_budget_currency
 from ...models import Expense, Itinerary, Location, Status, Tag, TravelMethod
 from .nominatim import forward_geocode
@@ -122,13 +125,22 @@ def create_or_update_itinerary_for_user(user, draft_payload=None):
     if values_error:
         return values_error
 
-    tags, tag_error = _validated_tag_names(payload)
+    demo_user = is_demo_user(user)
+    if demo_user:
+        values["is_public"] = False
+
+    tags, tag_error = _validated_tag_names(payload, allow_create=not demo_user)
     if tag_error:
         return tag_error
 
-    collaborators, collaborator_error = _validated_collaborators(payload, user)
-    if collaborator_error:
-        return collaborator_error
+    if demo_user and "collaborators" in payload:
+        collaborators = []
+        collaborator_error = None
+        logger.info("itinerary-management ignored collaborators for demo user %s.", user.id)
+    else:
+        collaborators, collaborator_error = _validated_collaborators(payload, user)
+        if collaborator_error:
+            return collaborator_error
 
     geocoding_context = values.get("location") or getattr(itinerary, "location", "")
     replace_locations = _parse_bool(payload.get("replace_locations")) if "replace_locations" in payload else creating
@@ -373,14 +385,20 @@ def _coerce_itinerary_field(field, raw_value):
     return raw_value, None
 
 
-def _validated_tag_names(payload):
+def _validated_tag_names(payload, allow_create=True):
     if "tags" not in payload:
         return None, None
 
     names = _string_list(payload.get("tags"))
     tags = []
     for name in _unique_in_order(names):
-        tag, _ = Tag.objects.get_or_create(name=name)
+        if allow_create:
+            tag, _ = Tag.objects.get_or_create(name=name)
+        else:
+            tag = Tag.objects.filter(name=name).first()
+            if tag is None:
+                logger.info("itinerary-management skipped new demo tag with name length %s.", len(name))
+                continue
         tags.append(tag)
     return tags, None
 

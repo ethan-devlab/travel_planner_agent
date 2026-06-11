@@ -16,6 +16,7 @@ urlpatterns = [
     path('weather/', weather.index, name='weather'),
     path('copy/', template.copy_itinerary, name='copy_itinerary'),
     path('login/', auth.login_view, name='login'),
+    path('demo-login/', auth.demo_login_view, name='demo_login'),
     path('logout/', auth.logout_view, name='logout'),
     path('register/', auth.register, name='register'),
     path('itinerary/<uuid:id>/', detail.itinerary_detail, name='itinerary_detail'),

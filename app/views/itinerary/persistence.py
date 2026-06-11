@@ -4,6 +4,7 @@ import logging
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 
+from ...demo import is_demo_user
 from ...models import Tag
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,17 @@ def _unique_in_order(values):
     return unique_values
 
 
-def _tags_from_post(post_data):
+def _tags_from_post(post_data, allow_create=True):
     tag_names = _unique_in_order(_split_csv(post_data.get('custom_tags', '')))
     tags = []
     for name in tag_names:
-        tag, _ = Tag.objects.get_or_create(name=name)
+        if allow_create:
+            tag, _ = Tag.objects.get_or_create(name=name)
+        else:
+            tag = Tag.objects.filter(name=name).first()
+            if tag is None:
+                logger.info("Skipped new demo tag with name length %s.", len(name))
+                continue
         tags.append(tag)
     return tags
 
@@ -60,8 +67,9 @@ def _collaborators_from_post(post_data, request):
 
 
 def save_itinerary_relations_from_post(itinerary, post_data, request):
-    tags = _tags_from_post(post_data)
-    collaborators = _collaborators_from_post(post_data, request)
+    demo_user = is_demo_user(request.user)
+    tags = _tags_from_post(post_data, allow_create=not demo_user)
+    collaborators = [] if demo_user else _collaborators_from_post(post_data, request)
 
     itinerary.tags.set(tags)
     itinerary.collaborators.set(collaborators)

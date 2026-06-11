@@ -1,9 +1,16 @@
 import ipaddress
 import logging
+import time
 from django.http import HttpResponseForbidden
 from django.conf import settings
+from django.shortcuts import redirect
+
+from .demo import cleanup_expired_demo_sessions, expire_demo_session_if_needed
 
 logger = logging.getLogger('network')
+demo_logger = logging.getLogger(__name__)
+_last_demo_cleanup_at = 0.0
+_DEMO_CLEANUP_INTERVAL_SECONDS = 10 * 60
 
 class IPRangeRestrictionMiddleware:
     def __init__(self, get_response):
@@ -43,3 +50,25 @@ class IPRangeRestrictionMiddleware:
 
         logger.info(f"Access Granted: IP {client_ip} is whitelisted.")
         return self.get_response(request)
+
+
+class DemoSessionMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        _cleanup_expired_demo_sessions_periodically()
+        if request.path != "/demo-login/" and expire_demo_session_if_needed(request):
+            return redirect(settings.LOGIN_URL)
+        return self.get_response(request)
+
+
+def _cleanup_expired_demo_sessions_periodically():
+    global _last_demo_cleanup_at
+    now = time.monotonic()
+    if now - _last_demo_cleanup_at < _DEMO_CLEANUP_INTERVAL_SECONDS:
+        return
+    _last_demo_cleanup_at = now
+    deleted_count = cleanup_expired_demo_sessions()
+    if deleted_count:
+        demo_logger.info("Opportunistic demo cleanup removed %s expired sessions.", deleted_count)

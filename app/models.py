@@ -5,6 +5,7 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.utils import timezone
 
 from .utils.budget_currency import BUDGET_CURRENCY_CHOICES, format_budget
 
@@ -27,6 +28,23 @@ class User(AbstractUser):
             self.id = user_uuid5(self.username)
             logger.debug("Generated UUID5 user id for username length %s.", len(self.username or ""))
         super().save(*args, **kwargs)
+
+
+class DemoSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='demo_session')
+    role = models.CharField(max_length=32, default='demo_user')
+    permissions = models.CharField(max_length=32, default='limited')
+    expires_at = models.DateTimeField(db_index=True)
+    ai_request_count = models.PositiveIntegerField(default=0)
+    minute_window_started_at = models.DateTimeField(null=True, blank=True)
+    minute_request_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def is_expired(self):
+        return self.expires_at <= timezone.now()
 
 
 class Tag(models.Model):

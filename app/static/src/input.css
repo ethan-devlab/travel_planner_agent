@@ -489,6 +489,10 @@
     @apply mt-5 border-t border-coast-100 pt-4 text-center text-sm text-ink-500;
   }
 
+  .auth-demo {
+    @apply mt-2 grid;
+  }
+
   .auth-link a {
     @apply font-semibold text-coast-700 hover:text-coast-600;
   }

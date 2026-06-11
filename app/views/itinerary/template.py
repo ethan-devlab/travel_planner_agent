@@ -25,7 +25,7 @@ def copy_itinerary(request):
 
         # Get the original itinerary
         owner = get_object_or_404(get_user_model(), username=owner_username)
-        original_itinerary = get_object_or_404(Itinerary, pk=id_, owner=owner)
+        original_itinerary = get_object_or_404(Itinerary, pk=id_, owner=owner, is_public=True)
 
         try:
             # Create new itinerary by copying data

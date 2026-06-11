@@ -14,7 +14,7 @@ from django.utils import timezone
 import requests
 
 from app.utils.budget_currency import infer_budget_currency
-from app.models import Event, Itinerary, Tag
+from app.models import DemoSession, Event, Itinerary, Tag
 from app.views.itinerary.route_helpers import normalize_routing_service_url
 from app.views.weather import weather as weather_view
 
@@ -977,6 +977,228 @@ class AuthViewTests(TestCase):
         self.assertEqual(logged_out.status_code, 302)
         self.assertEqual(logged_out.url, reverse('search'))
         self.assertNotIn('_auth_user_id', self.client.session)
+
+
+class DemoModeTests(TestCase):
+    def _demo_login(self, client=None):
+        client = client or self.client
+        response = client.get(reverse('demo_login'))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse('planner_agent'))
+        user_id = client.session['_auth_user_id']
+        return User.objects.get(id=user_id)
+
+    def _itinerary(self, owner, **overrides):
+        values = {
+            'owner': owner,
+            'title': 'Demo Test Trip',
+            'start_date': '2026-06-01',
+            'end_date': '2026-06-03',
+            'location': 'Taipei',
+            'budget': '500.00',
+            'status': 'draft',
+        }
+        values.update(overrides)
+        return Itinerary.objects.create(**values)
+
+    def test_login_page_renders_try_demo_link(self):
+        response = self.client.get(reverse('login'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Try Demo')
+        self.assertContains(response, reverse('demo_login'))
+
+    def test_demo_login_creates_unique_temporary_user_session_and_redirects(self):
+        first_client = Client()
+        second_client = Client()
+
+        first_user = self._demo_login(first_client)
+        second_user = self._demo_login(second_client)
+        first_demo = DemoSession.objects.get(user=first_user)
+        first_expiry_age = first_client.session.get_expiry_age()
+
+        self.assertNotEqual(first_user.username, second_user.username)
+        self.assertTrue(first_user.username.startswith('demo_user_'))
+        self.assertFalse(first_user.has_usable_password())
+        self.assertEqual(first_demo.role, 'demo_user')
+        self.assertEqual(first_demo.permissions, 'limited')
+        self.assertEqual(first_client.session['demo_role'], 'demo_user')
+        self.assertGreater(first_expiry_age, 7100)
+        self.assertLessEqual(first_expiry_age, 7200)
+
+    def test_demo_sessions_cannot_see_each_others_private_data(self):
+        first_client = Client()
+        second_client = Client()
+        first_user = self._demo_login(first_client)
+        self._demo_login(second_client)
+        private_itinerary = self._itinerary(first_user, title='First Demo Private Trip', is_public=False)
+
+        my_response = second_client.get(reverse('my_itineraries'))
+        detail_response = second_client.get(reverse('itinerary_detail', args=[private_itinerary.id]))
+
+        self.assertEqual(my_response.status_code, 200)
+        self.assertNotContains(my_response, 'First Demo Private Trip')
+        self.assertEqual(detail_response.status_code, 403)
+
+    def test_demo_users_can_view_public_data_but_not_private_user_data(self):
+        owner = User.objects.create_user(username='public-owner', password='password123')
+        public_itinerary = self._itinerary(owner, title='Visible Public Trip', is_public=True)
+        self._itinerary(owner, title='Hidden Private Trip', is_public=False)
+        self._demo_login()
+
+        search_response = self.client.get(reverse('search'))
+        template_response = self.client.get(reverse('template_list'))
+        public_detail = self.client.get(reverse('itinerary_detail', args=[public_itinerary.id]))
+
+        self.assertContains(search_response, 'Visible Public Trip')
+        self.assertNotContains(search_response, 'Hidden Private Trip')
+        self.assertContains(template_response, 'Visible Public Trip')
+        self.assertNotContains(template_response, 'Hidden Private Trip')
+        self.assertEqual(public_detail.status_code, 200)
+
+    def test_demo_created_itinerary_is_private_and_ignores_collaborators(self):
+        collaborator = User.objects.create_user(username='real-helper', password='password123')
+        demo_user = self._demo_login()
+
+        response = self.client.post(reverse('create'), {
+            'title': 'Demo Created Trip',
+            'start_date': '2026-06-01',
+            'end_date': '2026-06-03',
+            'location': 'Taipei',
+            'budget': '1000',
+            'budget_currency_choice': 'AUTO',
+            'description': 'Temporary demo itinerary',
+            'is_public': 'on',
+            'status': 'draft',
+            'collaborators': collaborator.username,
+        })
+
+        itinerary = Itinerary.objects.get(owner=demo_user, title='Demo Created Trip')
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(itinerary.is_public)
+        self.assertEqual(itinerary.collaborators.count(), 0)
+
+    def test_cleanup_expired_demo_sessions_deletes_temporary_data_only(self):
+        from app.demo import cleanup_expired_demo_sessions
+
+        demo_user = self._demo_login()
+        demo_itinerary = self._itinerary(demo_user, title='Expired Demo Trip')
+        demo_event = Event.objects.create(owner=demo_user, event_name='Expired Demo Event', date='2026-06-01', color='green')
+        normal_user = User.objects.create_user(username='normal-cleanup-user', password='password123')
+        normal_itinerary = self._itinerary(normal_user, title='Normal Trip')
+        DemoSession.objects.filter(user=demo_user).update(expires_at=timezone.now() - timedelta(minutes=1))
+
+        deleted_count = cleanup_expired_demo_sessions()
+
+        self.assertEqual(deleted_count, 1)
+        self.assertFalse(User.objects.filter(id=demo_user.id).exists())
+        self.assertFalse(Itinerary.objects.filter(id=demo_itinerary.id).exists())
+        self.assertFalse(Event.objects.filter(id=demo_event.id).exists())
+        self.assertTrue(User.objects.filter(id=normal_user.id).exists())
+        self.assertTrue(Itinerary.objects.filter(id=normal_itinerary.id).exists())
+
+    def test_demo_logout_deletes_temporary_user_and_data(self):
+        demo_user = self._demo_login()
+        itinerary = self._itinerary(demo_user, title='Logout Demo Trip')
+
+        response = self.client.get(reverse('logout'))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(User.objects.filter(id=demo_user.id).exists())
+        self.assertFalse(Itinerary.objects.filter(id=itinerary.id).exists())
+
+    def test_demo_ai_quota_blocks_fourth_request_per_minute_and_allows_after_reset(self):
+        from app.demo import DEMO_RATE_LIMIT_CODE, consume_demo_ai_quota
+
+        demo_user = self._demo_login()
+
+        self.assertTrue(consume_demo_ai_quota(demo_user).allowed)
+        self.assertTrue(consume_demo_ai_quota(demo_user).allowed)
+        self.assertTrue(consume_demo_ai_quota(demo_user).allowed)
+        blocked = consume_demo_ai_quota(demo_user)
+        self.assertFalse(blocked.allowed)
+        self.assertEqual(blocked.error_code, DEMO_RATE_LIMIT_CODE)
+
+        DemoSession.objects.filter(user=demo_user).update(
+            minute_window_started_at=timezone.now() - timedelta(seconds=61),
+        )
+        self.assertTrue(consume_demo_ai_quota(demo_user).allowed)
+
+    def test_demo_ai_quota_blocks_eleventh_planner_request(self):
+        from app.demo import DEMO_TOTAL_LIMIT_MESSAGE
+
+        demo_user = self._demo_login()
+        DemoSession.objects.filter(user=demo_user).update(
+            ai_request_count=10,
+            minute_window_started_at=timezone.now() - timedelta(seconds=61),
+            minute_request_count=0,
+        )
+
+        with patch('app.views.planner_agent.planner_agent.build_openai_chat_model') as model_mock:
+            response = self.client.post(reverse('planner_agent'), {'prompt': 'Plan a demo trip'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, DEMO_TOTAL_LIMIT_MESSAGE)
+        model_mock.assert_not_called()
+
+    def test_demo_ai_quota_blocks_stream_entrypoint(self):
+        demo_user = self._demo_login()
+        DemoSession.objects.filter(user=demo_user).update(
+            ai_request_count=3,
+            minute_window_started_at=timezone.now(),
+            minute_request_count=3,
+        )
+
+        with patch('app.views.planner_agent.planner_agent.build_openai_chat_model') as model_mock:
+            response = self.client.post(reverse('planner_agent_stream'), {'prompt': 'stream demo'})
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(payload['error'], 'demo_ai_rate_limit')
+        model_mock.assert_not_called()
+
+    def test_demo_ai_quota_blocks_itinerary_ai_check_entrypoint(self):
+        demo_user = self._demo_login()
+        itinerary = self._itinerary(demo_user, title='AI Check Demo Trip')
+        DemoSession.objects.filter(user=demo_user).update(
+            ai_request_count=10,
+            minute_window_started_at=timezone.now() - timedelta(seconds=61),
+            minute_request_count=0,
+        )
+
+        with patch('app.views.itinerary.edit.build_openai_chat_model') as model_mock:
+            response = self.client.post(
+                reverse('ai_itinerary_check', args=[itinerary.id]),
+                data=json.dumps({'check_type': 'overall'}),
+                content_type='application/json',
+            )
+
+        payload = response.json()
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(payload['error'], 'demo_ai_total_limit')
+        model_mock.assert_not_called()
+
+    def test_non_demo_user_is_not_limited_by_demo_quota(self):
+        user = User.objects.create_user(username='non-demo-ai-user', password='password123')
+        self.client.login(username='non-demo-ai-user', password='password123')
+
+        class FakeAgent:
+            def invoke(self, payload):
+                return {'structured_response': {'summary': '正常使用者可使用。'}}
+
+        with patch(
+            'app.views.planner_agent.planner_agent.build_openai_chat_model',
+            return_value=object(),
+        ) as model_mock, patch(
+            'app.views.planner_agent.planner_agent.build_planner_agent',
+            return_value=FakeAgent(),
+        ):
+            response = self.client.post(reverse('planner_agent'), {'prompt': 'normal user request'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '正常使用者可使用。')
+        self.assertFalse(DemoSession.objects.filter(user=user).exists())
+        model_mock.assert_called_once_with()
 
 
 class PlannerAgentViewTests(TestCase):

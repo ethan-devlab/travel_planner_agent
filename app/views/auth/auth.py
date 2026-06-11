@@ -5,7 +5,12 @@ from django.contrib.auth import login, logout, authenticate
 from django.views.decorators.http import require_http_methods
 from django.contrib import messages
 from django.shortcuts import render, redirect
+import logging
+
+from ...demo import create_demo_session, end_demo_session, is_demo_user
 from ...forms import LoginForm, RegisterForm
+
+logger = logging.getLogger(__name__)
 
 
 @require_http_methods(["GET", "POST"])
@@ -42,6 +47,16 @@ def login_view(request):
     return render(request, "auth/login.html", {"form": form})
 
 
+@require_http_methods(["GET"])
+def demo_login_view(request):
+    demo_session = create_demo_session(request)
+    logger.info("Started demo login flow for demo session %s.", demo_session.id)
+    return redirect("planner_agent")
+
+
 def logout_view(request):
-    logout(request)
+    if is_demo_user(request.user):
+        end_demo_session(request)
+    else:
+        logout(request)
     return redirect("search")
