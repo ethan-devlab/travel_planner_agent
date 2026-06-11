@@ -26,7 +26,7 @@ def get_events(request):
     data = []
     for event in events:
         data.append({
-            'id': event.id,
+            'id': str(event.id),
             'eventName': event.event_name,
             'date': event.date.strftime('%Y-%m-%d'),
             'color': event.color,
@@ -50,7 +50,7 @@ def add_event(request):
             logger.info("Calendar event %s created by user %s", event.id, request.user.id)
             return JsonResponse({
                 'status': 'ok', 
-                'id': event.id,
+                'id': str(event.id),
                 'eventName': name
             })
         except Exception as e:

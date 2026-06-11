@@ -9,7 +9,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('app', '0005_event_owner'),
-        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
