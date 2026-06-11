@@ -19,7 +19,7 @@ class ExpenseDraft(BaseModel):
 
 
 class LocationDraft(BaseModel):
-    location_id: int | None = Field(default=None, description="Existing location id when updating an itinerary.")
+    location_id: str | None = Field(default=None, description="Existing location UUID when updating an itinerary.")
     name: str = Field(description="Place or activity name, such as Tokyo Tower or Senso-ji Temple.")
     travel_method: str = Field(default="walk", description="One of boat, plane, walk, car, hsr, train, or bus.")
     visit_date: str | None = Field(default=None, description="ISO datetime preferred (YYYY-MM-DDTHH:MM).")
@@ -31,7 +31,7 @@ class LocationDraft(BaseModel):
 
 
 class ItineraryDraftPayload(BaseModel):
-    itinerary_id: int | None = Field(default=None, description="Existing itinerary id when updating.")
+    itinerary_id: str | None = Field(default=None, description="Existing itinerary UUID when updating.")
     title: str | None = Field(default=None, description="Itinerary title.")
     start_date: str | None = Field(default=None, description="Trip start date in YYYY-MM-DD format.")
     end_date: str | None = Field(default=None, description="Trip end date in YYYY-MM-DD format.")
@@ -66,7 +66,7 @@ def list_user_itineraries(include_shared: bool = True, limit: int = 10) -> dict:
 
 
 @planner_tool
-def suggest_itinerary_changes(itinerary_id: int | None = None, travel_goal: str = "") -> dict:
+def suggest_itinerary_changes(itinerary_id: str | None = None, travel_goal: str = "") -> dict:
     """Suggest safe itinerary improvements without applying changes."""
     return suggest_itinerary_changes_for_user(get_current_planner_user(), itinerary_id, travel_goal)
 
@@ -78,13 +78,13 @@ def create_or_update_itinerary(draft_payload: dict | str | None = None) -> dict:
 
 
 @planner_tool
-def manage_itinerary_status(itinerary_id: int | None = None, status: str = "") -> dict:
+def manage_itinerary_status(itinerary_id: str | None = None, status: str = "") -> dict:
     """Update an editable itinerary to a valid status choice."""
     return manage_itinerary_status_for_user(get_current_planner_user(), itinerary_id, status)
 
 
 @planner_tool
-def delete_itinerary(itinerary_id: int | None = None) -> dict:
+def delete_itinerary(itinerary_id: str | None = None) -> dict:
     """Delete an itinerary owned by the authenticated user."""
     return delete_itinerary_for_user(get_current_planner_user(), itinerary_id)
 

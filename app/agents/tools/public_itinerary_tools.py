@@ -1,6 +1,7 @@
 """Public itinerary lookup tools."""
 
 import logging
+import uuid
 from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class CopyPublicItineraryArgs(BaseModel):
-    public_itinerary_id: int = Field(description="The id of the public itinerary to copy into the current user's items.")
+    public_itinerary_id: str = Field(description="The UUID of the public itinerary to copy into the current user's items.")
 
 
 @planner_tool
@@ -70,7 +71,7 @@ def search_public_itineraries(query="", location="", budget=None):
 
 
 @planner_tool(args_schema=CopyPublicItineraryArgs)
-def copy_public_itinerary_to_my_items(public_itinerary_id: int) -> dict:
+def copy_public_itinerary_to_my_items(public_itinerary_id: str) -> dict:
     """Copy a public itinerary into the authenticated user's private items.
 
     Use this tool when the user asks to add a public itinerary to my items, apply
@@ -85,9 +86,9 @@ def copy_public_itinerary_to_my_items(public_itinerary_id: int) -> dict:
         return _error(tool_name, "authentication_required", "Sign in before copying a public itinerary.")
 
     try:
-        itinerary_pk = int(public_itinerary_id)
-    except (TypeError, ValueError):
-        return _error(tool_name, "invalid_public_itinerary_id", "public_itinerary_id must be an integer.")
+        itinerary_pk = uuid.UUID(str(public_itinerary_id))
+    except (TypeError, ValueError, AttributeError):
+        return _error(tool_name, "invalid_public_itinerary_id", "public_itinerary_id must be a valid UUID.")
 
     source = (
         Itinerary.objects.filter(pk=itinerary_pk, is_public=True)
@@ -149,8 +150,8 @@ def copy_public_itinerary_to_my_items(public_itinerary_id: int) -> dict:
     return {
         "status": "ok",
         "tool": tool_name,
-        "source_itinerary_id": source.id,
-        "new_itinerary_id": new_itinerary.id,
+        "source_itinerary_id": str(source.id),
+        "new_itinerary_id": str(new_itinerary.id),
         "title": new_itinerary.title,
         "location_count": len(source_locations),
         "expense_count": expense_count,
@@ -172,7 +173,7 @@ def _parse_budget(value):
 
 def _public_itinerary_summary(itinerary):
     return {
-        "id": itinerary.id,
+        "id": str(itinerary.id),
         "title": itinerary.title,
         "destination": itinerary.location,
         "start_date": itinerary.start_date.isoformat(),

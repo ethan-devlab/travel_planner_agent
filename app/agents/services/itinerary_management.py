@@ -4,6 +4,7 @@ import json
 import logging
 import threading
 import time as time_module
+import uuid
 from datetime import datetime, time
 from decimal import Decimal, InvalidOperation
 
@@ -246,7 +247,7 @@ def delete_itinerary_for_user(user, itinerary_id=None):
     return {
         "status": "ok",
         "tool": "delete_itinerary",
-        "itinerary_id": deleted_itinerary_id,
+        "itinerary_id": str(deleted_itinerary_id),
         "action": "deleted",
     }
 
@@ -259,10 +260,9 @@ def _require_authenticated_user(user, tool_name):
 
 
 def _get_editable_itinerary(user, itinerary_id, tool_name):
-    try:
-        itinerary_pk = int(itinerary_id)
-    except (TypeError, ValueError):
-        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be an integer.")
+    itinerary_pk, id_error = _parse_uuid(itinerary_id)
+    if id_error:
+        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be a valid UUID.")
 
     itinerary = (
         Itinerary.objects.filter(Q(owner=user) | Q(collaborators=user), pk=itinerary_pk)
@@ -276,10 +276,9 @@ def _get_editable_itinerary(user, itinerary_id, tool_name):
 
 
 def _get_owned_itinerary(user, itinerary_id, tool_name):
-    try:
-        itinerary_pk = int(itinerary_id)
-    except (TypeError, ValueError):
-        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be an integer.")
+    itinerary_pk, id_error = _parse_uuid(itinerary_id)
+    if id_error:
+        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be a valid UUID.")
 
     itinerary = Itinerary.objects.filter(owner=user, pk=itinerary_pk).first()
     if not itinerary:
@@ -463,7 +462,7 @@ def _validated_location_updates(payload):
             return None, _error("create_or_update_itinerary", "invalid_location", "Each location must be an object.")
 
         route_order = _parse_int(raw_location.get("route_order"), None) if "route_order" in raw_location else None
-        location_id = _parse_int(raw_location.get("location_id"), None) if "location_id" in raw_location else None
+        location_id = _parse_uuid(raw_location.get("location_id"))[0] if "location_id" in raw_location else None
         name = str(raw_location.get("name") or "").strip() if "name" in raw_location else ""
         travel_method = str(raw_location.get("travel_method") or "").strip() if "travel_method" in raw_location else ""
 
@@ -779,7 +778,7 @@ def _create_locations(itinerary, locations):
 
 def _serialize_itinerary(itinerary, include_locations=True, locations=None):
     data = {
-        "id": itinerary.id,
+        "id": str(itinerary.id),
         "title": itinerary.title,
         "start_date": itinerary.start_date.isoformat(),
         "end_date": itinerary.end_date.isoformat(),
@@ -801,7 +800,7 @@ def _serialize_itinerary(itinerary, include_locations=True, locations=None):
 
 def _serialize_itinerary_summary(itinerary, user):
     return {
-        "id": itinerary.id,
+        "id": str(itinerary.id),
         "title": itinerary.title,
         "start_date": itinerary.start_date.isoformat(),
         "end_date": itinerary.end_date.isoformat(),
@@ -820,7 +819,7 @@ def _serialize_itinerary_summary(itinerary, user):
 
 def _serialize_location(location):
     return {
-        "id": location.id,
+        "id": str(location.id),
         "name": location.name,
         "visit_date": location.visit_date.isoformat() if location.visit_date else None,
         "travel_method": location.travel_method,
@@ -830,7 +829,7 @@ def _serialize_location(location):
         "note_length": len(location.note or ""),
         "expenses": [
             {
-                "id": expense.id,
+                "id": str(expense.id),
                 "expense_type": expense.expense_type,
                 "amount": str(expense.amount),
             }
@@ -947,6 +946,13 @@ def _parse_int(raw_value, default):
         return int(raw_value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_uuid(raw_value):
+    try:
+        return uuid.UUID(str(raw_value)), None
+    except (TypeError, ValueError, AttributeError):
+        return None, "invalid_uuid"
 
 
 def _parse_bool(raw_value):
