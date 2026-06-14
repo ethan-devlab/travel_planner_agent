@@ -16,7 +16,12 @@ logger = logging.getLogger(__name__)
 
 @planner_tool
 def review_itinerary_on_request(itinerary_id=None, review_focus=""):
-    """Review an itinerary only when the user requests review."""
+    """Return saved itinerary facts and AI-facing review guidance on request.
+
+    The tool is intentionally read-only. The planner agent should use the
+    returned guidance and saved trip facts to judge destination, stop, timing,
+    route, and budget reasonableness without hardcoded country or city rules.
+    """
     tool_name = "review_itinerary_on_request"
     user = get_current_planner_user()
     auth_error = _require_authenticated_user(user, tool_name)
@@ -37,6 +42,7 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
     risks = _review_risks(itinerary, locations, route_waypoints)
     suggested_next_actions = _suggested_next_actions(itinerary, locations, route_waypoints, risks)
     expense_total = _expense_total(locations)
+    saved_locations = _saved_location_review_data(locations)
 
     logger.info(
         "Owner B tool %s reviewed itinerary %s for user %s with %s locations, %s waypoints, focus length %s.",
@@ -68,6 +74,23 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
             "tag_names": list(itinerary.tags.values_list("name", flat=True)),
             "relationship": "owner" if itinerary.owner_id == user.id else (
                 "collaborator" if itinerary.collaborators.filter(pk=user.pk).exists() else "public"
+            ),
+        },
+        "saved_locations": saved_locations,
+        "ai_review_guidance": {
+            "stop_consistency": (
+                "請根據行程標題、目的地與景點名稱，使用常識判斷景點是否看起來屬於"
+                "同一國家、城市、區域或合理旅遊範圍。若例如日本行中出現台北、首爾、"
+                "韓國、台北大巨蛋等疑似不同國家或地區的景點，請提醒使用者確認。"
+                "若可能是跨國行程，不要直接判定錯誤，請建議使用者在標題或描述中標明跨國安排。"
+            ),
+            "date_route_budget": (
+                "請依已儲存景點的造訪日期、交通方式、路線順序、預算與支出摘要，"
+                "檢查日期是否落在行程期間內、路線順序是否合理、支出是否接近或超過預算。"
+            ),
+            "visibility": (
+                "請不要在使用者可見回覆中顯示 itinerary_id、資料庫 id、internal id、"
+                "主鍵或技術欄位名稱；請改用目前行程、此行程或行程標題稱呼。"
             ),
         },
         "risks": risks,
@@ -149,6 +172,38 @@ def _suggested_next_actions(itinerary, locations, route_waypoints, risks):
     if itinerary.status == "draft":
         actions.append("Keep the itinerary in draft until timing, route, and budget risks are resolved.")
     return actions
+
+
+def _saved_location_review_data(locations):
+    review_locations = []
+    for location in locations:
+        expenses = list(location.expenses.all())
+        expense_total = sum((expense.amount for expense in expenses), Decimal("0"))
+        review_locations.append({
+            "name": location.name,
+            "visit_date": location.visit_date.isoformat() if location.visit_date else None,
+            "travel_method": location.travel_method,
+            "route_order": location.route_order,
+            "note_summary": _note_summary(location.note),
+            "expenses_summary": {
+                "expense_count": len(expenses),
+                "expense_total": str(expense_total),
+                "expense_types": sorted({expense.expense_type for expense in expenses}),
+            },
+        })
+    return review_locations
+
+
+def _note_summary(note):
+    if not note:
+        return {
+            "has_note": False,
+            "character_count": 0,
+        }
+    return {
+        "has_note": True,
+        "character_count": len(note),
+    }
 
 
 def _expense_total(locations):
