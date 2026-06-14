@@ -40,7 +40,7 @@ class ItineraryForm(forms.ModelForm):
             'start_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
             'end_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
             'location': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '請輸入地點或國家'}),
-            'budget': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '請輸入預算'}),
+            'budget': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '請輸入預算', 'step': '0.01', 'min': '0'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '請輸入行程描述'}),
             'is_public': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'status': forms.Select(attrs={'class': 'form-select'}),
@@ -138,7 +138,7 @@ class SearchForm(forms.Form):
     budget = forms.CharField(
         required=False, 
         label="預算",
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '輸入預算'})
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '輸入預算', 'pattern': r'^\d+(\.\d{1,2})?$', 'title': '請輸入有效的預算數字，最多兩位小數', 'inputmode': 'decimal', 'min': '0'})
     )
     location = forms.CharField(
         required=False, 
@@ -168,7 +168,7 @@ class ExpenseForm(forms.ModelForm):
         fields = ['expense_type', 'amount']
         widgets = {
             'expense_type': forms.Select(attrs={'class': 'form-select'}),
-            'amount': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '支出金額'}),
+            'amount': forms.NumberInput(attrs={'class': 'form-control', 'placeholder': '支出金額', 'pattern': r'^\d+(\.\d{1,2})?$', 'title': '請輸入有效的支出金額，最多兩位小數', 'inputmode': 'decimal', 'min': '0'}),
         }
         labels = {
             'expense_type': '支出類型',
