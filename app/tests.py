@@ -1631,6 +1631,30 @@ class ItineraryManagementTests(TestCase):
 
 
 class PlannerAgentToolRegistryTests(TestCase):
+    def test_planner_agent_prompt_hides_internal_identifiers(self):
+        from app.agents.planner_agent import PLANNER_AGENT_SYSTEM_PROMPT
+
+        self.assertIn('itinerary_id', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('database id', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('internal id', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('primary keys', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('technical field names', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('Never show them in user-visible summary', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('summary', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('actions', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('key_data', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('next_steps', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('目前行程', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('此行程', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('country_mismatch', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('visit_date_outside_trip', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('expenses_over_budget', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('景點', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('造訪日期', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('預算', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('路線', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('concise Traditional Chinese', PLANNER_AGENT_SYSTEM_PROMPT)
+
     def test_registry_exposes_exactly_five_documented_tool_groups(self):
         from app.agents.tool_groups import TOOL_GROUPS
 
@@ -1691,8 +1715,28 @@ class PlannerAgentToolTests(TestCase):
         self.assertEqual(result['review_summary']['relationship'], 'owner')
         self.assertEqual(result['review_summary']['route_waypoint_count'], 1)
         self.assertEqual(result['review_summary']['expense_total'], '500.00')
+        self.assertEqual(result['saved_locations'][0]['name'], 'Taipei 101')
+        self.assertEqual(result['saved_locations'][0]['travel_method'], 'walk')
+        self.assertEqual(result['saved_locations'][0]['route_order'], 0)
+        self.assertEqual(result['saved_locations'][0]['note_summary']['has_note'], True)
+        self.assertEqual(result['saved_locations'][0]['note_summary']['character_count'], len('DO_NOT_LOG_SECRET route note'))
+        self.assertEqual(result['saved_locations'][0]['expenses_summary']['expense_count'], 1)
+        self.assertEqual(result['saved_locations'][0]['expenses_summary']['expense_total'], '500.00')
         self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
         self.assertNotIn('DO_NOT_LOG_SECRET', json.dumps(result))
+
+    def test_review_collaborator_can_review_private_itinerary(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary(is_public=False)
+        itinerary.collaborators.add(self.collaborator)
+
+        with planner_tool_user(self.collaborator):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['review_summary']['relationship'], 'collaborator')
 
     def test_review_without_itinerary_id_returns_confirmation_response(self):
         from app.agents.tool_context import planner_tool_user
@@ -1725,6 +1769,86 @@ class PlannerAgentToolTests(TestCase):
 
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['error_code'], 'itinerary_not_found')
+
+    def test_review_includes_ai_guidance_for_destination_stop_consistency(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary(title='Japan Trip', location='Tokyo, Japan')
+        itinerary.locations.create(
+            name='Taipei Dome',
+            travel_method='train',
+            visit_date='2026-06-02T09:00:00+08:00',
+            latitude=25.041,
+            longitude=121.56,
+            route_order=0,
+        )
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+
+        guidance = result['ai_review_guidance']
+        guidance_text = json.dumps(guidance, ensure_ascii=False)
+        self.assertIn('行程標題', guidance_text)
+        self.assertIn('目的地', guidance_text)
+        self.assertIn('景點名稱', guidance_text)
+        self.assertIn('同一國家、城市、區域或合理旅遊範圍', guidance_text)
+        self.assertIn('疑似不同國家或地區', guidance_text)
+        self.assertIn('跨國行程', guidance_text)
+        self.assertIn('標明跨國安排', guidance_text)
+        self.assertIn('visibility', guidance)
+        self.assertEqual(result['review_summary']['title'], 'Japan Trip')
+        self.assertEqual(result['review_summary']['destination'], 'Tokyo, Japan')
+        self.assertEqual(result['saved_locations'][0]['name'], 'Taipei Dome')
+
+    def test_review_tool_does_not_modify_itinerary_data(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary()
+        location = itinerary.locations.create(
+            name='Saved Stop',
+            travel_method='walk',
+            note='Keep this note private',
+            visit_date='2026-06-02T09:00:00+08:00',
+            latitude=25.0339,
+            longitude=121.5645,
+            route_order=0,
+        )
+        expense = location.expenses.create(expense_type='ticket', amount='500.00')
+        before = {
+            'itinerary_count': Itinerary.objects.count(),
+            'title': itinerary.title,
+            'location': itinerary.location,
+            'budget': str(itinerary.budget),
+            'status': itinerary.status,
+            'location_count': itinerary.locations.count(),
+            'location_name': location.name,
+            'location_note': location.note,
+            'expense_count': location.expenses.count(),
+            'expense_amount': str(expense.amount),
+        }
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+
+        itinerary.refresh_from_db()
+        location.refresh_from_db()
+        expense.refresh_from_db()
+        after = {
+            'itinerary_count': Itinerary.objects.count(),
+            'title': itinerary.title,
+            'location': itinerary.location,
+            'budget': str(itinerary.budget),
+            'status': itinerary.status,
+            'location_count': itinerary.locations.count(),
+            'location_name': location.name,
+            'location_note': location.note,
+            'expense_count': location.expenses.count(),
+            'expense_amount': str(expense.amount),
+        }
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(after, before)
 
     def test_review_includes_route_and_expense_risk_signals(self):
         from app.agents.tool_context import planner_tool_user
