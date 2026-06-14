@@ -695,6 +695,15 @@ class CalendarCsrfTests(TestCase):
             'color': 'green',
         })
 
+    def _update_payload(self, **overrides):
+        payload = {
+            'eventName': 'Museum visit updated',
+            'date': '2026-06-13',
+            'color': 'blue',
+        }
+        payload.update(overrides)
+        return json.dumps(payload)
+
     def test_add_event_without_csrf_token_is_forbidden(self):
         response = self.client.post(
             reverse('add_event'),
@@ -720,6 +729,95 @@ class CalendarCsrfTests(TestCase):
         self.assertEqual(event.owner, self.user)
         self.assertEqual(event.event_name, 'Museum visit')
         self.assertEqual(event.color, 'green')
+
+    def test_calendar_page_renders_edit_controls(self):
+        response = self.client.get(reverse('calendar'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="event-edit-status"')
+        self.assertContains(response, 'id="cancel-edit-button"')
+        self.assertContains(response, '編輯與刪除活動')
+
+    def test_update_event_without_csrf_token_is_forbidden(self):
+        event = Event.objects.create(
+            owner=self.user,
+            event_name='Dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        response = self.client.patch(
+            reverse('update_event', args=[event.id]),
+            data=self._update_payload(),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        event.refresh_from_db()
+        self.assertEqual(event.event_name, 'Dinner')
+
+    def test_update_event_with_csrf_token_updates_own_event(self):
+        event = Event.objects.create(
+            owner=self.user,
+            event_name='Dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        response = self.client.patch(
+            reverse('update_event', args=[event.id]),
+            data=self._update_payload(),
+            content_type='application/json',
+            **self._csrf_headers(),
+        )
+
+        event.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'ok')
+        self.assertEqual(response.json()['event']['eventName'], 'Museum visit updated')
+        self.assertEqual(event.event_name, 'Museum visit updated')
+        self.assertEqual(event.date.isoformat(), '2026-06-13')
+        self.assertEqual(event.color, 'blue')
+
+    def test_update_event_with_csrf_token_cannot_update_another_users_event(self):
+        event = Event.objects.create(
+            owner=self.other_user,
+            event_name='Private dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        with self.assertLogs('app.views.calendar.calendar', level='WARNING'):
+            response = self.client.patch(
+                reverse('update_event', args=[event.id]),
+                data=self._update_payload(),
+                content_type='application/json',
+                **self._csrf_headers(),
+            )
+
+        self.assertEqual(response.status_code, 404)
+        event.refresh_from_db()
+        self.assertEqual(event.event_name, 'Private dinner')
+
+    def test_update_event_rejects_invalid_date(self):
+        event = Event.objects.create(
+            owner=self.user,
+            event_name='Dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        response = self.client.patch(
+            reverse('update_event', args=[event.id]),
+            data=self._update_payload(date='not-a-date'),
+            content_type='application/json',
+            **self._csrf_headers(),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'date must be YYYY-MM-DD')
+        event.refresh_from_db()
+        self.assertEqual(event.date.isoformat(), '2026-06-12')
 
     def test_delete_event_without_csrf_token_is_forbidden(self):
         event = Event.objects.create(
@@ -2174,6 +2272,46 @@ class CalendarManagementToolTests(TestCase):
         self.assertEqual(event.owner, self.owner)
         self.assertEqual(event.color, 'blue')
         self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
+
+    def test_update_calendar_event_updates_only_owned_event(self):
+        from app.agents.tools.calendar_tools import update_calendar_event
+        from app.agents.tool_context import planner_tool_user
+
+        event = Event.objects.create(owner=self.owner, event_name='Original', date='2026-06-18', color='yellow')
+
+        with self.assertLogs('app.agents.tools.calendar_tools', level='INFO') as logs, planner_tool_user(self.owner):
+            result = invoke_tool(update_calendar_event, event_id=event.id, event_payload={
+                'eventName': 'Updated',
+                'date': '2026-06-19',
+                'color': 'green',
+            })
+
+        event.refresh_from_db()
+        log_text = ' '.join(logs.output)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['event']['eventName'], 'Updated')
+        self.assertEqual(event.event_name, 'Updated')
+        self.assertEqual(event.date.isoformat(), '2026-06-19')
+        self.assertEqual(event.color, 'green')
+        self.assertNotIn('Updated', log_text)
+
+    def test_update_calendar_event_cannot_modify_other_users_event(self):
+        from app.agents.tools.calendar_tools import update_calendar_event
+        from app.agents.tool_context import planner_tool_user
+
+        event = Event.objects.create(owner=self.other_user, event_name='Private', date='2026-06-18', color='yellow')
+
+        with self.assertLogs('app.agents.tools.calendar_tools', level='WARNING'), planner_tool_user(self.owner):
+            result = invoke_tool(update_calendar_event, event_id=event.id, event_payload={
+                'eventName': 'Attempted',
+                'date': '2026-06-19',
+                'color': 'green',
+            })
+
+        event.refresh_from_db()
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'event_not_found')
+        self.assertEqual(event.event_name, 'Private')
 
     def test_create_calendar_event_rejects_invalid_color(self):
         from app.agents.tools.calendar_tools import create_calendar_event
