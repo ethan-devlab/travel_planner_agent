@@ -31,5 +31,6 @@ urlpatterns = [
     path('planner-agent/stream/', planner_agent.planner_agent_stream_view, name='planner_agent_stream'),
     path('api/events/', calendar.get_events, name='get_events'),
     path('api/add_event/', calendar.add_event, name='add_event'),
+    path('api/update_event/<uuid:event_id>/', calendar.update_event, name='update_event'),
     path('api/delete_event/<uuid:event_id>/', calendar.delete_event, name='delete_event'),
 ]
