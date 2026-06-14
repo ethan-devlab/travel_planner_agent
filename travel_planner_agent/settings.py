@@ -42,15 +42,9 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_
 
 CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if os.getenv('CSRF_TRUSTED_ORIGINS') else []
 
-<<<<<<< HEAD
 ALLOWED_IP_RANGES = os.getenv('ALLOWED_IP_RANGES', '').split(',') if os.getenv('ALLOWED_IP_RANGES') else ['0.0.0.0/0']
 print(f"Allowed IP ranges: {ALLOWED_IP_RANGES}")
 # ALLOWED_IP_RANGES = ["0.0.0.0/0", "::/0"]  # Allow all IPv4 and IPv6 addresses by default, can be overridden by environment variable
-=======
-# ALLOWED_IP_RANGES = os.getenv('ALLOWED_IP_RANGES', '').split(',') if os.getenv('ALLOWED_IP_RANGES') else ['0.0.0.0/0']
-# print(f"Allowed IP ranges: {ALLOWED_IP_RANGES}")
-ALLOWED_IP_RANGES = ["0.0.0.0/0", "::/0"]  # Allow all IPv4 and IPv6 addresses by default, can be overridden by environment variable
->>>>>>> 5645e68 (Validate budget input and allow all IP ranges)
 
 # Application definition
 
