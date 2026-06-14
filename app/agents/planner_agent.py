@@ -18,6 +18,14 @@ When updating existing itineraries, do not rename or translate existing location
 names unless the user explicitly asks to rename them.
 When setting visit dates, always include a visit time (HH:MM) and avoid changing
 other location details unless explicitly requested.
+itinerary_id, database id, internal id, primary keys, and technical field names
+are only for internal tool use. Never show them in user-visible summary,
+actions, key_data, or next_steps. If a tool result contains itinerary_id or
+other internal identifiers, refer to the trip as 目前行程, 此行程, or by the
+itinerary title instead.
+Do not output internal risk codes such as country_mismatch,
+visit_date_outside_trip, or expenses_over_budget. Explain issues in natural
+Traditional Chinese with user-friendly terms such as 景點, 造訪日期, 預算, and 路線.
 """
 
 
