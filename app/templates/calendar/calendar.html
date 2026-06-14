@@ -42,10 +42,16 @@
                 </select>
             </div>
 
+            <p id="event-edit-status" class="section-description" hidden></p>
+
             <div class="form-group">
                 <button id="add-event-button" class="add-event-btn">
                     <i class="ri-add-line"></i>
                     新增活動
+                </button>
+                <button id="cancel-edit-button" type="button" class="btn btn-outline-secondary btn-sm" hidden>
+                    <i class="ri-close-line"></i>
+                    取消編輯
                 </button>
             </div>
         </div>
@@ -53,14 +59,18 @@
 
     <div class="delete-section">
         <h3 class="section-title">
-            <i class="ri-delete-bin-line"></i>
-            刪除活動
+            <i class="ri-edit-line"></i>
+            編輯與刪除活動
         </h3>
-        <p class="section-description">點擊日曆中的活動，然後點擊刪除按鈕來移除活動</p>
+        <p class="section-description">點擊日曆中的活動，然後按編輯或刪除按鈕來修改活動</p>
         <div class="delete-instructions">
             <div class="instruction-item">
                 <i class="ri-mouse-line"></i>
                 <span>點擊日期查看活動</span>
+            </div>
+            <div class="instruction-item">
+                <i class="ri-edit-line"></i>
+                <span>點擊活動右側的編輯圖示</span>
             </div>
             <div class="instruction-item">
                 <i class="ri-delete-bin-2-line"></i>

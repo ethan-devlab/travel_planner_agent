@@ -1,20 +1,23 @@
 import json
 import re
+import uuid
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 import requests
 
-from app.budget_currency import infer_budget_currency
+from app.utils.budget_currency import infer_budget_currency
 from app.models import Event, Itinerary, Tag
 from app.views.itinerary.route_helpers import normalize_routing_service_url
 from app.views.weather import weather as weather_view
+
+User = get_user_model()
 
 
 class FakeResponse:
@@ -133,6 +136,60 @@ class BudgetCurrencyTests(TestCase):
         self.assertEqual(infer_budget_currency('Tokyo, Japan'), 'JPY')
         self.assertEqual(infer_budget_currency('台中市'), 'TWD')
         self.assertEqual(infer_budget_currency('Seoul, Korea'), 'KRW')
+
+
+class UUIDPrimaryKeyTests(TestCase):
+    def test_user_id_is_uuid5_from_configured_namespace_and_username(self):
+        user = User.objects.create_user(username='CaseSensitiveUser', password='password123')
+        expected = uuid.uuid5(uuid.UUID(settings.USER_ID_UUID5_NAMESPACE), 'user:CaseSensitiveUser')
+
+        self.assertEqual(user.id, expected)
+        self.assertEqual(user.id.version, 5)
+
+    def test_app_models_and_itinerary_join_rows_use_uuid4_ids(self):
+        owner = User.objects.create_user(username='uuid-owner', password='password123')
+        collaborator = User.objects.create_user(username='uuid-collaborator', password='password123')
+        tag = Tag.objects.create(name='uuid-tag')
+        itinerary = Itinerary.objects.create(
+            owner=owner,
+            title='UUID Trip',
+            start_date='2026-06-01',
+            end_date='2026-06-02',
+            location='Taipei',
+            budget='1000.00',
+        )
+        itinerary.tags.add(tag)
+        itinerary.collaborators.add(collaborator)
+        location = itinerary.locations.create(
+            name='Taipei 101',
+            travel_method='walk',
+            visit_date='2026-06-01T09:00:00+08:00',
+            latitude=25.0339,
+            longitude=121.5645,
+            route_order=0,
+        )
+        expense = location.expenses.create(expense_type='ticket', amount='500.00')
+        event = Event.objects.create(owner=owner, event_name='UUID Event', date='2026-06-01', color='green')
+
+        from app.models import ItineraryCollaborator, ItineraryTag
+
+        uuid4_values = [
+            tag.id,
+            itinerary.id,
+            location.id,
+            expense.id,
+            event.id,
+            ItineraryTag.objects.get(itinerary=itinerary, tag=tag).id,
+            ItineraryCollaborator.objects.get(itinerary=itinerary, user=collaborator).id,
+        ]
+        for value in uuid4_values:
+            self.assertIsInstance(value, uuid.UUID)
+            self.assertEqual(value.version, 4)
+
+    def test_integer_itinerary_url_no_longer_matches(self):
+        response = self.client.get('/itinerary/1/')
+
+        self.assertEqual(response.status_code, 404)
 
 
 class ItineraryRouteTests(TestCase):
@@ -614,7 +671,7 @@ class ItineraryEditPersistenceTests(TestCase):
         payload = response.json()
         self.assertEqual(response.status_code, 200)
         self.assertFalse(payload['success'])
-        self.assertIn('Planner agent is not configured yet', payload['message'])
+        self.assertIn('規劃助手目前尚未完成設定', payload['message'])
 
 
 class CalendarCsrfTests(TestCase):
@@ -638,6 +695,15 @@ class CalendarCsrfTests(TestCase):
             'color': 'green',
         })
 
+    def _update_payload(self, **overrides):
+        payload = {
+            'eventName': 'Museum visit updated',
+            'date': '2026-06-13',
+            'color': 'blue',
+        }
+        payload.update(overrides)
+        return json.dumps(payload)
+
     def test_add_event_without_csrf_token_is_forbidden(self):
         response = self.client.post(
             reverse('add_event'),
@@ -659,10 +725,99 @@ class CalendarCsrfTests(TestCase):
         event = Event.objects.get()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['status'], 'ok')
-        self.assertEqual(response.json()['id'], event.id)
+        self.assertEqual(response.json()['id'], str(event.id))
         self.assertEqual(event.owner, self.user)
         self.assertEqual(event.event_name, 'Museum visit')
         self.assertEqual(event.color, 'green')
+
+    def test_calendar_page_renders_edit_controls(self):
+        response = self.client.get(reverse('calendar'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="event-edit-status"')
+        self.assertContains(response, 'id="cancel-edit-button"')
+        self.assertContains(response, '編輯與刪除活動')
+
+    def test_update_event_without_csrf_token_is_forbidden(self):
+        event = Event.objects.create(
+            owner=self.user,
+            event_name='Dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        response = self.client.patch(
+            reverse('update_event', args=[event.id]),
+            data=self._update_payload(),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        event.refresh_from_db()
+        self.assertEqual(event.event_name, 'Dinner')
+
+    def test_update_event_with_csrf_token_updates_own_event(self):
+        event = Event.objects.create(
+            owner=self.user,
+            event_name='Dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        response = self.client.patch(
+            reverse('update_event', args=[event.id]),
+            data=self._update_payload(),
+            content_type='application/json',
+            **self._csrf_headers(),
+        )
+
+        event.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'ok')
+        self.assertEqual(response.json()['event']['eventName'], 'Museum visit updated')
+        self.assertEqual(event.event_name, 'Museum visit updated')
+        self.assertEqual(event.date.isoformat(), '2026-06-13')
+        self.assertEqual(event.color, 'blue')
+
+    def test_update_event_with_csrf_token_cannot_update_another_users_event(self):
+        event = Event.objects.create(
+            owner=self.other_user,
+            event_name='Private dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        with self.assertLogs('app.views.calendar.calendar', level='WARNING'):
+            response = self.client.patch(
+                reverse('update_event', args=[event.id]),
+                data=self._update_payload(),
+                content_type='application/json',
+                **self._csrf_headers(),
+            )
+
+        self.assertEqual(response.status_code, 404)
+        event.refresh_from_db()
+        self.assertEqual(event.event_name, 'Private dinner')
+
+    def test_update_event_rejects_invalid_date(self):
+        event = Event.objects.create(
+            owner=self.user,
+            event_name='Dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        response = self.client.patch(
+            reverse('update_event', args=[event.id]),
+            data=self._update_payload(date='not-a-date'),
+            content_type='application/json',
+            **self._csrf_headers(),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'date must be YYYY-MM-DD')
+        event.refresh_from_db()
+        self.assertEqual(event.date.isoformat(), '2026-06-12')
 
     def test_delete_event_without_csrf_token_is_forbidden(self):
         event = Event.objects.create(
@@ -780,8 +935,9 @@ class PlannerAgentViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'href="/planner-agent/"')
-        self.assertContains(response, 'planner agent')
-        self.assertContains(response, 'itinerary_management')
+        self.assertContains(response, '規劃助手')
+        self.assertContains(response, '我可以幫你')
+        self.assertNotContains(response, 'itinerary_management')
         self.assertContains(response, 'appendPlannerLoadingCard')
         self.assertContains(response, "parsedEvent.name === 'result'")
 
@@ -1003,7 +1159,7 @@ class PlannerAgentViewTests(TestCase):
             response = self.client.post(reverse('planner_agent'), {'prompt': 'Plan a Taipei food trip'})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Planner agent is not configured yet')
+        self.assertContains(response, '規劃助手目前尚未完成設定')
 
 
 class PlannerAgentFactoryTests(TestCase):
@@ -1023,16 +1179,16 @@ class PlannerAgentFactoryTests(TestCase):
         self.assertIs(response_format.schema, PlannerStructuredResponse)
 
 
-class OwnerAItineraryManagementTests(TestCase):
+class ItineraryManagementTests(TestCase):
     def setUp(self):
-        self.owner = User.objects.create_user(username='owner-a', password='password123')
-        self.collaborator = User.objects.create_user(username='owner-a-helper', password='password123')
-        self.other_user = User.objects.create_user(username='owner-a-other', password='password123')
+        self.owner = User.objects.create_user(username='trip-owner', password='password123')
+        self.collaborator = User.objects.create_user(username='trip-helper', password='password123')
+        self.other_user = User.objects.create_user(username='trip-other', password='password123')
 
     def _itinerary(self, **overrides):
         values = {
             'owner': self.owner,
-            'title': 'Owner A Trip',
+            'title': 'Taipei Trip',
             'start_date': '2026-06-01',
             'end_date': '2026-06-03',
             'location': 'Taipei',
@@ -1053,7 +1209,7 @@ class OwnerAItineraryManagementTests(TestCase):
             'status': 'draft',
             'is_public': False,
             'tags': ['food', 'food', 'weekend'],
-            'collaborators': ['owner-a-helper'],
+            'collaborators': ['trip-helper'],
             'locations': [{
                 'name': 'Museum',
                 'travel_method': 'walk',
@@ -1084,7 +1240,7 @@ class OwnerAItineraryManagementTests(TestCase):
         self.assertEqual(result['action'], 'created')
         self.assertEqual(itinerary.owner, self.owner)
         self.assertEqual(list(itinerary.tags.values_list('name', flat=True)), ['food', 'weekend'])
-        self.assertEqual(list(itinerary.collaborators.values_list('username', flat=True)), ['owner-a-helper'])
+        self.assertEqual(list(itinerary.collaborators.values_list('username', flat=True)), ['trip-helper'])
         self.assertEqual(location.expenses.get().amount, Decimal('15.50'))
         self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
 
@@ -1408,6 +1564,14 @@ class OwnerAItineraryManagementTests(TestCase):
         self.assertEqual(result['error_code'], 'invalid_status')
         self.assertEqual(itinerary.status, 'draft')
 
+    def test_malformed_itinerary_id_is_rejected(self):
+        from app.agents.services.itinerary_management import manage_itinerary_status_for_user
+
+        result = manage_itinerary_status_for_user(self.owner, 'not-a-uuid', 'ongoing')
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'invalid_itinerary_id')
+
     def test_owner_can_delete_owned_itinerary(self):
         from app.agents.services.itinerary_management import delete_itinerary_for_user
 
@@ -1417,7 +1581,7 @@ class OwnerAItineraryManagementTests(TestCase):
 
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['tool'], 'delete_itinerary')
-        self.assertEqual(result['itinerary_id'], itinerary.id)
+        self.assertEqual(result['itinerary_id'], str(itinerary.id))
         self.assertFalse(Itinerary.objects.filter(id=itinerary.id).exists())
 
     def test_non_owner_cannot_delete_itinerary(self):
@@ -1435,7 +1599,7 @@ class OwnerAItineraryManagementTests(TestCase):
     def test_tool_requires_authenticated_context(self):
         from app.agents.tools.itinerary_tools import manage_itinerary_status
 
-        result = invoke_tool(manage_itinerary_status, itinerary_id=123, status='ongoing')
+        result = invoke_tool(manage_itinerary_status, itinerary_id='not-a-uuid', status='ongoing')
 
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['error_code'], 'authentication_required')
@@ -1447,7 +1611,7 @@ class OwnerAItineraryManagementTests(TestCase):
         itinerary = self._itinerary()
 
         with planner_tool_user(self.owner):
-            result = invoke_tool(manage_itinerary_status, itinerary_id=itinerary.id, status='completed')
+            result = invoke_tool(manage_itinerary_status, itinerary_id=str(itinerary.id), status='completed')
 
         itinerary.refresh_from_db()
         self.assertEqual(result['status'], 'ok')
@@ -1460,7 +1624,7 @@ class OwnerAItineraryManagementTests(TestCase):
         itinerary = self._itinerary(title='Delete Tool Context')
 
         with planner_tool_user(self.owner):
-            result = invoke_tool(delete_itinerary, itinerary_id=itinerary.id)
+            result = invoke_tool(delete_itinerary, itinerary_id=str(itinerary.id))
 
         self.assertEqual(result['status'], 'ok')
         self.assertFalse(Itinerary.objects.filter(id=itinerary.id).exists())
@@ -1497,23 +1661,23 @@ class PlannerAgentToolRegistryTests(TestCase):
         docs = (settings.BASE_DIR / 'docs' / 'planner_agent_tools.md').read_text(encoding='utf-8')
 
         self.assertEqual(len(TOOL_GROUPS), 5)
+        self.assertNotIn('Owner ', docs)
         for group in TOOL_GROUPS:
             self.assertIn(group.name, docs)
-            self.assertIn(group.owner, docs)
             self.assertIn(group.module_path, docs)
             self.assertGreater(len(group.tools), 0)
 
 
-class OwnerBPlannerAgentToolTests(TestCase):
+class PlannerAgentToolTests(TestCase):
     def setUp(self):
-        self.owner = User.objects.create_user(username='owner-b', password='password123')
-        self.collaborator = User.objects.create_user(username='owner-b-helper', password='password123')
-        self.other_user = User.objects.create_user(username='owner-b-other', password='password123')
+        self.owner = User.objects.create_user(username='review-owner', password='password123')
+        self.collaborator = User.objects.create_user(username='review-helper', password='password123')
+        self.other_user = User.objects.create_user(username='review-other', password='password123')
 
     def _itinerary(self, **overrides):
         values = {
             'owner': self.owner,
-            'title': 'Owner B Taipei Review',
+            'title': 'Taipei Review',
             'start_date': '2026-06-01',
             'end_date': '2026-06-03',
             'location': 'Taipei',
@@ -1542,12 +1706,12 @@ class OwnerBPlannerAgentToolTests(TestCase):
         location.expenses.create(expense_type='ticket', amount='500.00')
 
         with self.assertLogs('app.agents.tools.review_tools', level='INFO') as logs, planner_tool_user(self.owner):
-            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id, review_focus='budget and route')
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=str(itinerary.id), review_focus='budget and route')
 
         log_text = ' '.join(logs.output)
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['tool'], 'review_itinerary_on_request')
-        self.assertEqual(result['itinerary_id'], itinerary.id)
+        self.assertEqual(result['itinerary_id'], str(itinerary.id))
         self.assertEqual(result['review_summary']['relationship'], 'owner')
         self.assertEqual(result['review_summary']['route_waypoint_count'], 1)
         self.assertEqual(result['review_summary']['expense_total'], '500.00')
@@ -1584,6 +1748,16 @@ class OwnerBPlannerAgentToolTests(TestCase):
         self.assertEqual(result['status'], 'confirmation_required')
         self.assertEqual(result['error_code'], 'missing_itinerary_context')
 
+    def test_review_rejects_malformed_itinerary_id(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id='not-a-uuid')
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'invalid_itinerary_id')
+
     def test_private_itinerary_review_denies_non_collaborator(self):
         from app.agents.tool_context import planner_tool_user
         from app.agents.tools.review_tools import review_itinerary_on_request
@@ -1591,7 +1765,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
         itinerary = self._itinerary(is_public=False)
 
         with planner_tool_user(self.other_user):
-            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=str(itinerary.id))
 
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['error_code'], 'itinerary_not_found')
@@ -1692,7 +1866,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
         location.expenses.create(expense_type='ticket', amount='1200.00')
 
         with planner_tool_user(self.owner):
-            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=str(itinerary.id))
 
         risk_codes = {risk['code'] for risk in result['risks']}
         self.assertIn('missing_route_coordinates', risk_codes)
@@ -1709,7 +1883,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
 
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['count'], 1)
-        self.assertEqual(result['itineraries'][0]['id'], public.id)
+        self.assertEqual(result['itineraries'][0]['id'], str(public.id))
 
     def test_search_public_itineraries_respects_query_location_and_max_budget(self):
         from app.agents.tools.public_itinerary_tools import search_public_itineraries
@@ -1731,7 +1905,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
 
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['count'], 1)
-        self.assertEqual(result['itineraries'][0]['id'], match.id)
+        self.assertEqual(result['itineraries'][0]['id'], str(match.id))
         self.assertEqual(result['itineraries'][0]['tag_names'], ['food'])
         self.assertEqual(result['itineraries'][0]['public_stop_count'], 1)
 
@@ -1750,7 +1924,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
     def test_copy_public_itinerary_requires_authenticated_context(self):
         from app.agents.tools.public_itinerary_tools import copy_public_itinerary_to_my_items
 
-        result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=123)
+        result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id='not-a-uuid')
 
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['error_code'], 'authentication_required')
@@ -1769,13 +1943,13 @@ class OwnerBPlannerAgentToolTests(TestCase):
         )
 
         with planner_tool_user(self.other_user):
-            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=str(source.id))
 
         source.refresh_from_db()
         new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['tool'], 'copy_public_itinerary_to_my_items')
-        self.assertEqual(result['source_itinerary_id'], source.id)
+        self.assertEqual(result['source_itinerary_id'], str(source.id))
         self.assertEqual(result['title'], 'Japan Public Trip')
         self.assertEqual(result['message'], '已將公共行程複製到你的項目。')
         self.assertEqual(new_itinerary.title, source.title)
@@ -1794,7 +1968,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
         source = self._itinerary(is_public=False)
 
         with planner_tool_user(self.other_user):
-            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=str(source.id))
 
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['error_code'], 'public_itinerary_not_found')
@@ -1807,7 +1981,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
         source = self._itinerary(is_public=True)
 
         with planner_tool_user(self.other_user):
-            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=str(source.id))
 
         new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
         self.assertEqual(new_itinerary.owner, self.other_user)
@@ -1819,7 +1993,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
         source = self._itinerary(is_public=True)
 
         with planner_tool_user(self.other_user):
-            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=str(source.id))
 
         new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
         self.assertFalse(new_itinerary.is_public)
@@ -1851,7 +2025,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
         )
 
         with planner_tool_user(self.other_user):
-            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=str(source.id))
 
         new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
         new_locations = list(new_itinerary.locations.prefetch_related('expenses'))
@@ -1877,7 +2051,7 @@ class OwnerBPlannerAgentToolTests(TestCase):
         source.collaborators.add(self.collaborator)
 
         with planner_tool_user(self.other_user):
-            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=source.id)
+            result = invoke_tool(copy_public_itinerary_to_my_items, public_itinerary_id=str(source.id))
 
         new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
         self.assertEqual(set(new_itinerary.tags.values_list('name', flat=True)), {'food', 'family'})
@@ -2067,10 +2241,10 @@ class ItineraryTemplateViewTests(TestCase):
         self.assertEqual(response.url, reverse('template_list'))
 
 
-class OwnerCTravelContextToolTests(TestCase):
+class TravelContextToolTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='owner-c-user', password='password123')
-        self.client.login(username='owner-c-user', password='password123')
+        self.user = User.objects.create_user(username='travel-user', password='password123')
+        self.client.login(username='travel-user', password='password123')
 
     def test_lookup_weather_reuses_existing_service_and_formats_safe_response(self):
         from app.agents.tools.travel_context_tools import lookup_weather
@@ -2183,7 +2357,7 @@ class OwnerCTravelContextToolTests(TestCase):
         self.assertTrue(any('Provider unavailable' in str(message) for message in messages))
 
 
-class OwnerCCalendarManagementToolTests(TestCase):
+class CalendarManagementToolTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username='calendar-tool-owner', password='password123')
         self.other_user = User.objects.create_user(username='calendar-tool-other', password='password123')
@@ -2223,6 +2397,46 @@ class OwnerCCalendarManagementToolTests(TestCase):
         self.assertEqual(event.color, 'blue')
         self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
 
+    def test_update_calendar_event_updates_only_owned_event(self):
+        from app.agents.tools.calendar_tools import update_calendar_event
+        from app.agents.tool_context import planner_tool_user
+
+        event = Event.objects.create(owner=self.owner, event_name='Original', date='2026-06-18', color='yellow')
+
+        with self.assertLogs('app.agents.tools.calendar_tools', level='INFO') as logs, planner_tool_user(self.owner):
+            result = invoke_tool(update_calendar_event, event_id=event.id, event_payload={
+                'eventName': 'Updated',
+                'date': '2026-06-19',
+                'color': 'green',
+            })
+
+        event.refresh_from_db()
+        log_text = ' '.join(logs.output)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['event']['eventName'], 'Updated')
+        self.assertEqual(event.event_name, 'Updated')
+        self.assertEqual(event.date.isoformat(), '2026-06-19')
+        self.assertEqual(event.color, 'green')
+        self.assertNotIn('Updated', log_text)
+
+    def test_update_calendar_event_cannot_modify_other_users_event(self):
+        from app.agents.tools.calendar_tools import update_calendar_event
+        from app.agents.tool_context import planner_tool_user
+
+        event = Event.objects.create(owner=self.other_user, event_name='Private', date='2026-06-18', color='yellow')
+
+        with self.assertLogs('app.agents.tools.calendar_tools', level='WARNING'), planner_tool_user(self.owner):
+            result = invoke_tool(update_calendar_event, event_id=event.id, event_payload={
+                'eventName': 'Attempted',
+                'date': '2026-06-19',
+                'color': 'green',
+            })
+
+        event.refresh_from_db()
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'event_not_found')
+        self.assertEqual(event.event_name, 'Private')
+
     def test_create_calendar_event_rejects_invalid_color(self):
         from app.agents.tools.calendar_tools import create_calendar_event
         from app.agents.tool_context import planner_tool_user
@@ -2245,7 +2459,7 @@ class OwnerCCalendarManagementToolTests(TestCase):
         event = Event.objects.create(owner=self.owner, event_name='Delete me', date='2026-06-18', color='yellow')
 
         with planner_tool_user(self.owner):
-            result = invoke_tool(delete_calendar_event, event_id=event.id)
+            result = invoke_tool(delete_calendar_event, event_id=str(event.id))
 
         self.assertEqual(result['status'], 'ok')
         self.assertFalse(Event.objects.filter(id=event.id).exists())
@@ -2257,7 +2471,7 @@ class OwnerCCalendarManagementToolTests(TestCase):
         event = Event.objects.create(owner=self.other_user, event_name='Private dinner', date='2026-06-18', color='yellow')
 
         with self.assertLogs('app.agents.tools.calendar_tools', level='WARNING'), planner_tool_user(self.owner):
-            result = invoke_tool(delete_calendar_event, event_id=event.id)
+            result = invoke_tool(delete_calendar_event, event_id=str(event.id))
 
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['error_code'], 'event_not_found')

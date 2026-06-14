@@ -2,9 +2,9 @@
 from django import forms
 from .models import Itinerary, Expense
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 
-from .budget_currency import BUDGET_CURRENCY_CHOICES
+from .utils.budget_currency import BUDGET_CURRENCY_CHOICES
 
 
 class ItineraryForm(forms.ModelForm):
@@ -102,7 +102,7 @@ class RegisterForm(UserCreationForm):
     )
 
     class Meta:
-        model = User
+        model = get_user_model()
         fields = ['username', 'email', 'password1', 'password2']
 
 

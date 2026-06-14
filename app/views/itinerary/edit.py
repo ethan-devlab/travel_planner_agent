@@ -4,7 +4,7 @@ import json
 import logging
 
 from ...forms import ItineraryForm
-from ...budget_currency import resolve_budget_currency
+from ...utils.budget_currency import resolve_budget_currency
 from ...models import Itinerary
 from ...agents.planner_agent import (
     PlannerAgentConfigurationError,

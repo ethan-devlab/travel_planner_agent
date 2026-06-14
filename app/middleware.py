@@ -1,30 +1,3 @@
-# from django.http import HttpResponseForbidden
-# from django.conf import settings
-# import ipaddress
-
-
-# class IPRestrictionMiddleware:
-#     def __init__(self, get_response):
-#         self.get_response = get_response
-
-#     def __call__(self, request):
-#         # Extract the real client IP (handles reverse proxies)
-#         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-#         if x_forwarded_for:
-#             ip = x_forwarded_for.split(',')[0].strip()
-#         else:
-#             ip = request.META.get('REMOTE_ADDR')
-
-#         # Option A: Whitelist implementation
-#         if hasattr(settings, 'ALLOWED_IPS') and ip not in settings.ALLOWED_IPS or not any(ip.startswith(allowed_ip) for allowed_ip in settings.ALLOWED_IPS):
-#             return HttpResponseForbidden("Access Denied: Your IP is not whitelisted.")
-
-#         # Option B: Blacklist implementation (Comment out Option A if using this)
-#         # if hasattr(settings, 'BLOCKED_IPS') and ip in settings.BLOCKED_IPS:
-#         #     return HttpResponseForbidden("Access Denied: Your IP is blocked.")
-
-#         return self.get_response(request)
-
 import ipaddress
 import logging
 from django.http import HttpResponseForbidden

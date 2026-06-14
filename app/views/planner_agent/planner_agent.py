@@ -12,7 +12,6 @@ from ...agents.planner_agent import (
     build_planner_agent,
 )
 from ...agents.tool_context import planner_tool_user
-from ...agents.tool_groups import TOOL_GROUPS
 
 try:
     from langchain_core.messages import AIMessage, AIMessageChunk
@@ -22,12 +21,39 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-CONFIGURATION_ERROR_RESPONSE = "Planner agent is not configured yet. Ask the administrator to verify LangChain/OpenAI settings."
-EXECUTION_ERROR_RESPONSE = "Planner agent could not complete the request safely. Please try again later."
+PLANNER_CAPABILITIES = (
+    {
+        "icon": "ri-route-line",
+        "title": "行程規劃",
+        "description": "把目的地、日期、預算和停留地點整理成可執行的旅行安排。",
+    },
+    {
+        "icon": "ri-search-eye-line",
+        "title": "細節檢查",
+        "description": "幫你看路線、時間和預算是否順得下來，提醒你需要補的資料。",
+    },
+    {
+        "icon": "ri-cloud-windy-line",
+        "title": "天氣與匯率",
+        "description": "出發前快速確認天氣和匯率，方便你決定要帶什麼、怎麼花。",
+    },
+    {
+        "icon": "ri-compass-3-line",
+        "title": "行程靈感",
+        "description": "看看公開行程的安排方式，快速找到適合自己的旅行方向。",
+    },
+    {
+        "icon": "ri-calendar-2-line",
+        "title": "行事曆整理",
+        "description": "把行程事件整理到行事曆，方便你追蹤每天要做什麼。",
+    },
+)
+CONFIGURATION_ERROR_RESPONSE = "規劃助手目前尚未完成設定，請稍後再試或聯絡管理員。"
+EXECUTION_ERROR_RESPONSE = "規劃助手暫時無法安全完成這次需求，請稍後再試。"
 PLANNER_HISTORY_SESSION_KEY = "planner_agent_history"
 MAX_PLANNER_HISTORY_ROUNDS = 5
-DEFAULT_STRUCTURED_SUMMARY = "已完成規劃。"
-DEFAULT_FALLBACK_SUMMARY = "Planner agent completed without a text response."
+DEFAULT_STRUCTURED_SUMMARY = "我已幫你整理好了。"
+DEFAULT_FALLBACK_SUMMARY = "我先幫你整理成可讀的重點。"
 
 
 @login_required
@@ -45,7 +71,7 @@ def planner_agent_view(request):
             chat_history = _append_planner_history(request, prompt, agent_response)
 
     return render(request, "planner_agent/index.html", {
-        "tool_groups": TOOL_GROUPS,
+        "planner_capabilities": PLANNER_CAPABILITIES,
         "submitted_prompt": prompt,
         "agent_response": agent_response,
         "chat_history": chat_history,

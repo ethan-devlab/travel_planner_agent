@@ -1,9 +1,10 @@
-"""Owner A itinerary-management service for planner-agent tools."""
+"""Itinerary-management service for planner-agent tools."""
 
 import json
 import logging
 import threading
 import time as time_module
+import uuid
 from datetime import datetime, time
 from decimal import Decimal, InvalidOperation
 
@@ -15,7 +16,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 import requests
 
-from ...budget_currency import BUDGET_CURRENCY_CODES, resolve_budget_currency
+from ...utils.budget_currency import BUDGET_CURRENCY_CODES, resolve_budget_currency
 from ...models import Expense, Itinerary, Location, Status, Tag, TravelMethod
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ def list_user_itineraries_for_user(user, include_shared=True, limit=10):
     )
     results = [_serialize_itinerary_summary(itinerary, user) for itinerary in itineraries]
     logger.info(
-        "Owner A tool list_user_itineraries returned %s itineraries for user %s.",
+        "itinerary-management tool list_user_itineraries returned %s itineraries for user %s.",
         len(results),
         user.id,
     )
@@ -82,7 +83,7 @@ def suggest_itinerary_changes_for_user(user, itinerary_id=None, travel_goal=""):
         return auth_error
 
     if not itinerary_id:
-        logger.info("Owner A tool suggest_itinerary_changes generated generic suggestions.")
+        logger.info("itinerary-management tool suggest_itinerary_changes generated generic suggestions.")
         return {
             "status": "ok",
             "tool": "suggest_itinerary_changes",
@@ -97,7 +98,7 @@ def suggest_itinerary_changes_for_user(user, itinerary_id=None, travel_goal=""):
     locations = list(itinerary.locations.prefetch_related("expenses"))
     suggestions = _itinerary_suggestions(itinerary, locations, travel_goal)
     logger.info(
-        "Owner A tool suggest_itinerary_changes inspected itinerary %s with %s locations.",
+        "itinerary-management tool suggest_itinerary_changes inspected itinerary %s with %s locations.",
         itinerary.id,
         len(locations),
     )
@@ -176,7 +177,7 @@ def create_or_update_itinerary_for_user(user, draft_payload=None):
             if update_error:
                 return update_error
             logger.info(
-                "Owner A location patch updated %s locations and created %s locations for itinerary %s.",
+                "itinerary-management location patch updated %s locations and created %s locations for itinerary %s.",
                 update_result["updated_count"],
                 update_result["created_count"],
                 itinerary.id,
@@ -184,7 +185,7 @@ def create_or_update_itinerary_for_user(user, draft_payload=None):
 
     location_count = itinerary.locations.count()
     logger.info(
-        "Owner A tool create_or_update_itinerary %s itinerary %s with %s locations.",
+        "itinerary-management tool create_or_update_itinerary %s itinerary %s with %s locations.",
         action,
         itinerary.id,
         location_count,
@@ -207,7 +208,7 @@ def manage_itinerary_status_for_user(user, itinerary_id=None, status=""):
 
     new_status = str(status or "").strip()
     if new_status not in VALID_STATUSES:
-        logger.warning("Owner A status update rejected invalid status %s.", new_status or "<blank>")
+        logger.warning("itinerary-management status update rejected invalid status %s.", new_status or "<blank>")
         return _error("manage_itinerary_status", "invalid_status", "Status must be one of the documented choices.")
 
     itinerary, error = _get_editable_itinerary(user, itinerary_id, "manage_itinerary_status")
@@ -217,7 +218,7 @@ def manage_itinerary_status_for_user(user, itinerary_id=None, status=""):
     itinerary.status = new_status
     itinerary.save(update_fields=["status", "updated_at"])
     logger.info(
-        "Owner A tool manage_itinerary_status set itinerary %s to status %s.",
+        "itinerary-management tool manage_itinerary_status set itinerary %s to status %s.",
         itinerary.id,
         new_status,
     )
@@ -242,27 +243,26 @@ def delete_itinerary_for_user(user, itinerary_id=None):
 
     deleted_itinerary_id = itinerary.id
     itinerary.delete()
-    logger.info("Owner A tool delete_itinerary removed itinerary %s for owner %s.", deleted_itinerary_id, user.id)
+    logger.info("itinerary-management tool delete_itinerary removed itinerary %s for user %s.", deleted_itinerary_id, user.id)
     return {
         "status": "ok",
         "tool": "delete_itinerary",
-        "itinerary_id": deleted_itinerary_id,
+        "itinerary_id": str(deleted_itinerary_id),
         "action": "deleted",
     }
 
 
 def _require_authenticated_user(user, tool_name):
     if user is None or not getattr(user, "is_authenticated", False):
-        logger.warning("Owner A tool %s rejected unauthenticated access.", tool_name)
+        logger.warning("itinerary-management tool %s rejected unauthenticated access.", tool_name)
         return _error(tool_name, "authentication_required", "Sign in before using itinerary tools.")
     return None
 
 
 def _get_editable_itinerary(user, itinerary_id, tool_name):
-    try:
-        itinerary_pk = int(itinerary_id)
-    except (TypeError, ValueError):
-        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be an integer.")
+    itinerary_pk, id_error = _parse_uuid(itinerary_id)
+    if id_error:
+        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be a valid UUID.")
 
     itinerary = (
         Itinerary.objects.filter(Q(owner=user) | Q(collaborators=user), pk=itinerary_pk)
@@ -270,20 +270,19 @@ def _get_editable_itinerary(user, itinerary_id, tool_name):
         .first()
     )
     if not itinerary:
-        logger.warning("Owner A tool %s denied access to itinerary %s.", tool_name, itinerary_pk)
+        logger.warning("itinerary-management tool %s denied access to itinerary %s.", tool_name, itinerary_pk)
         return None, _error(tool_name, "itinerary_not_found", "No editable itinerary was found.")
     return itinerary, None
 
 
 def _get_owned_itinerary(user, itinerary_id, tool_name):
-    try:
-        itinerary_pk = int(itinerary_id)
-    except (TypeError, ValueError):
-        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be an integer.")
+    itinerary_pk, id_error = _parse_uuid(itinerary_id)
+    if id_error:
+        return None, _error(tool_name, "invalid_itinerary_id", "itinerary_id must be a valid UUID.")
 
     itinerary = Itinerary.objects.filter(owner=user, pk=itinerary_pk).first()
     if not itinerary:
-        logger.warning("Owner A tool %s denied owner-only delete access to itinerary %s.", tool_name, itinerary_pk)
+        logger.warning("itinerary-management tool %s denied delete access to itinerary %s.", tool_name, itinerary_pk)
         return None, _error(tool_name, "itinerary_not_found", "No owned itinerary was found.")
     return itinerary, None
 
@@ -408,7 +407,7 @@ def _validated_collaborators(payload, owner):
     users_by_username = get_user_model().objects.in_bulk(usernames, field_name="username")
     missing = [username for username in usernames if username not in users_by_username]
     if missing:
-        logger.warning("Owner A collaborator validation rejected %s missing users.", len(missing))
+        logger.warning("itinerary-management collaborator validation rejected %s missing users.", len(missing))
         return None, _error(
             "create_or_update_itinerary",
             "unknown_collaborator",
@@ -463,7 +462,7 @@ def _validated_location_updates(payload):
             return None, _error("create_or_update_itinerary", "invalid_location", "Each location must be an object.")
 
         route_order = _parse_int(raw_location.get("route_order"), None) if "route_order" in raw_location else None
-        location_id = _parse_int(raw_location.get("location_id"), None) if "location_id" in raw_location else None
+        location_id = _parse_uuid(raw_location.get("location_id"))[0] if "location_id" in raw_location else None
         name = str(raw_location.get("name") or "").strip() if "name" in raw_location else ""
         travel_method = str(raw_location.get("travel_method") or "").strip() if "travel_method" in raw_location else ""
 
@@ -572,10 +571,10 @@ def _apply_existing_location_patch(location, update):
         changed_fields.append("travel_method")
 
     if update.get("name_provided") and update.get("name") and update["name"] != location.name:
-        logger.info("Owner A ignored location rename attempt for location %s.", location.id)
+        logger.info("itinerary-management ignored location rename attempt for location %s.", location.id)
 
     if update.get("has_coordinate_payload"):
-        logger.info("Owner A ignored model-provided coordinates for existing location %s.", location.id)
+        logger.info("itinerary-management ignored model-provided coordinates for existing location %s.", location.id)
 
     if changed_fields:
         location.save(update_fields=changed_fields)
@@ -662,7 +661,7 @@ def _validated_location(raw_location, index, geocoding_context=""):
     # Planner-agent generated payload coordinates are never trusted.
     # To match user flows, every location coordinate is resolved via Nominatim.
     if raw_location.get("latitude") is not None or raw_location.get("longitude") is not None:
-        logger.info("Owner A ignored model-provided coordinates for location name length %s.", len(name))
+        logger.info("itinerary-management ignored model-provided coordinates for location name length %s.", len(name))
     latitude, longitude = _geocode_location_coordinates(name, geocoding_context)
 
     return {
@@ -686,7 +685,7 @@ def _geocode_location_coordinates(location_name, geocoding_context=""):
     if coordinates:
         return coordinates
 
-    logger.warning("Owner A Nominatim geocoding found no coordinates for location length %s.", len(location_name))
+    logger.warning("itinerary-management Nominatim geocoding found no coordinates for location length %s.", len(location_name))
     return 0.0, 0.0
 
 
@@ -707,7 +706,7 @@ def _nominatim_geocode_with_fallback(location_name, geocoding_context=""):
     for query in queries:
         coordinates = _nominatim_geocode(query)
         if coordinates:
-            logger.info("Owner A geocoded location with Nominatim using query length %s.", len(query))
+            logger.info("itinerary-management geocoded location with Nominatim using query length %s.", len(query))
             return coordinates
     return None
 
@@ -779,7 +778,7 @@ def _create_locations(itinerary, locations):
 
 def _serialize_itinerary(itinerary, include_locations=True, locations=None):
     data = {
-        "id": itinerary.id,
+        "id": str(itinerary.id),
         "title": itinerary.title,
         "start_date": itinerary.start_date.isoformat(),
         "end_date": itinerary.end_date.isoformat(),
@@ -801,7 +800,7 @@ def _serialize_itinerary(itinerary, include_locations=True, locations=None):
 
 def _serialize_itinerary_summary(itinerary, user):
     return {
-        "id": itinerary.id,
+        "id": str(itinerary.id),
         "title": itinerary.title,
         "start_date": itinerary.start_date.isoformat(),
         "end_date": itinerary.end_date.isoformat(),
@@ -820,7 +819,7 @@ def _serialize_itinerary_summary(itinerary, user):
 
 def _serialize_location(location):
     return {
-        "id": location.id,
+        "id": str(location.id),
         "name": location.name,
         "visit_date": location.visit_date.isoformat() if location.visit_date else None,
         "travel_method": location.travel_method,
@@ -830,7 +829,7 @@ def _serialize_location(location):
         "note_length": len(location.note or ""),
         "expenses": [
             {
-                "id": expense.id,
+                "id": str(expense.id),
                 "expense_type": expense.expense_type,
                 "amount": str(expense.amount),
             }
@@ -947,6 +946,13 @@ def _parse_int(raw_value, default):
         return int(raw_value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_uuid(raw_value):
+    try:
+        return uuid.UUID(str(raw_value)), None
+    except (TypeError, ValueError, AttributeError):
+        return None, "invalid_uuid"
 
 
 def _parse_bool(raw_value):
