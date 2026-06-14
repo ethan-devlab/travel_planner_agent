@@ -1,4 +1,4 @@
-"""Weather and currency tools for Owner C."""
+"""Weather and currency tools."""
 
 import datetime as dt
 import logging
@@ -31,11 +31,11 @@ def lookup_weather(city="", date=""):
     if not normalized_city:
         return _error(tool_name, "missing_city", "city is required.")
     if date_error:
-        logger.warning("Owner C tool %s rejected invalid date input.", tool_name)
+        logger.warning("travel-context tool %s rejected invalid date input.", tool_name)
         return _error(tool_name, "invalid_date", "date must be YYYY-MM-DD when provided.")
 
     logger.info(
-        "Owner C tool %s requested weather for city length %s and date provided=%s.",
+        "travel-context tool %s requested weather for city length %s and date provided=%s.",
         tool_name,
         len(normalized_city),
         bool(normalized_date),
@@ -44,7 +44,7 @@ def lookup_weather(city="", date=""):
         weather_data, forecast_data = fetch_weather_and_forecast(normalized_city, settings.WEATHER_API_KEY)
     except WeatherLookupError as exc:
         logger.warning(
-            "Owner C tool %s weather lookup failed for city length %s with %s.",
+            "travel-context tool %s weather lookup failed for city length %s with %s.",
             tool_name,
             len(normalized_city),
             exc.__class__.__name__,
@@ -52,7 +52,7 @@ def lookup_weather(city="", date=""):
         return _error(tool_name, "weather_lookup_failed", "Unable to retrieve weather information right now.")
     except Exception as exc:
         logger.warning(
-            "Owner C tool %s weather provider raised %s for city length %s.",
+            "travel-context tool %s weather provider raised %s for city length %s.",
             tool_name,
             exc.__class__.__name__,
             len(normalized_city),
@@ -69,7 +69,7 @@ def lookup_weather(city="", date=""):
         matching_forecasts = matching_forecasts[:5]
 
     logger.info(
-        "Owner C tool %s returning %s forecast rows for city length %s.",
+        "travel-context tool %s returning %s forecast rows for city length %s.",
         tool_name,
         len(matching_forecasts),
         len(normalized_city),
@@ -113,18 +113,18 @@ def convert_currency(from_currency="", to_currency="", amount=0):
     if not source_code or not target_code:
         return _error(tool_name, "missing_currency_code", "from_currency and to_currency are required.")
     if source_code not in currencies or target_code not in currencies:
-        logger.warning("Owner C tool %s rejected unsupported currency pair %s/%s.", tool_name, source_code, target_code)
+        logger.warning("travel-context tool %s rejected unsupported currency pair %s/%s.", tool_name, source_code, target_code)
         return _error(tool_name, "unsupported_currency", "Only configured currency codes are supported.")
     if amount_error:
-        logger.warning("Owner C tool %s rejected invalid amount for %s/%s.", tool_name, source_code, target_code)
+        logger.warning("travel-context tool %s rejected invalid amount for %s/%s.", tool_name, source_code, target_code)
         return _error(tool_name, "invalid_amount", "amount must be a non-negative number.")
 
-    logger.info("Owner C tool %s requested pair %s/%s.", tool_name, source_code, target_code)
+    logger.info("travel-context tool %s requested pair %s/%s.", tool_name, source_code, target_code)
     try:
         rate = get_exchange_rate(source_code, target_code)
     except Exception as exc:
         logger.warning(
-            "Owner C tool %s exchange lookup raised %s for pair %s/%s.",
+            "travel-context tool %s exchange lookup raised %s for pair %s/%s.",
             tool_name,
             exc.__class__.__name__,
             source_code,
@@ -133,7 +133,7 @@ def convert_currency(from_currency="", to_currency="", amount=0):
         return _error(tool_name, "exchange_lookup_failed", "Unable to retrieve exchange rate right now.")
 
     if isinstance(rate, Exception):
-        logger.warning("Owner C tool %s exchange service returned provider error for pair %s/%s.", tool_name, source_code, target_code)
+        logger.warning("travel-context tool %s exchange service returned provider error for pair %s/%s.", tool_name, source_code, target_code)
         return _error(tool_name, "exchange_lookup_failed", "Unable to retrieve exchange rate right now.")
 
     converted_amount = (normalized_amount * Decimal(str(rate))).quantize(Decimal("0.01"))

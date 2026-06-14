@@ -9,7 +9,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('app', '0004_delete_exchangeratecache_delete_weathercache'),
-        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
