@@ -108,7 +108,7 @@ def add_event(request):
     })
 
 
-@require_http_methods(["PATCH"])
+@require_http_methods(["POST", "PATCH"])
 def update_event(request, event_id):
     if not request.user.is_authenticated:
         return JsonResponse({'error': 'Unauthorized'}, status=401)
@@ -136,7 +136,7 @@ def update_event(request, event_id):
         logger.warning("Failed to update calendar event %s for user %s: %s", event_id, request.user.id, e)
         return JsonResponse({'error': str(e)}, status=400)
 
-    logger.info("Calendar event %s updated by user %s", event.id, request.user.id)
+    logger.info("Calendar event %s updated by user %s via %s", event.id, request.user.id, request.method)
     return JsonResponse({
         'status': 'ok',
         'event': _serialize_event(event),

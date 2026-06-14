@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -32,6 +33,7 @@ SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_DEBUG') == 'true'
+RUNNING_TESTS = 'test' in sys.argv
 
 # if DEBUG:
 #     raise RuntimeError('DEBUG must be False in production.')
@@ -42,6 +44,7 @@ CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if os.ge
 
 ALLOWED_IP_RANGES = os.getenv('ALLOWED_IP_RANGES', '').split(',') if os.getenv('ALLOWED_IP_RANGES') else ['0.0.0.0/0']
 print(f"Allowed IP ranges: {ALLOWED_IP_RANGES}")
+# ALLOWED_IP_RANGES = ["0.0.0.0/0", "::/0"]  # Allow all IPv4 and IPv6 addresses by default, can be overridden by environment variable
 
 # Application definition
 
@@ -133,6 +136,18 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'static'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+    },
+}
+
+if not DEBUG and not RUNNING_TESTS:
+    # Content-hashed static assets let browsers/CDNs cache aggressively without serving stale files after deploys.
+    STORAGES['staticfiles']['BACKEND'] = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
 
 LOGIN_URL = '/login/'
 ROUTING_SERVICE_URL = os.getenv('ROUTING_SERVICE_URL', 'router.project-osrm.org')

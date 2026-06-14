@@ -183,3 +183,6 @@ node_modules/
 pyproject.toml
 .sonar/
 django_project/
+
+# Django collectstatic output; source assets live under app/static/.
+/static/
