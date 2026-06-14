@@ -746,7 +746,7 @@ class CalendarCsrfTests(TestCase):
             color='orange',
         )
 
-        response = self.client.patch(
+        response = self.client.post(
             reverse('update_event', args=[event.id]),
             data=self._update_payload(),
             content_type='application/json',
@@ -764,7 +764,7 @@ class CalendarCsrfTests(TestCase):
             color='orange',
         )
 
-        response = self.client.patch(
+        response = self.client.post(
             reverse('update_event', args=[event.id]),
             data=self._update_payload(),
             content_type='application/json',
@@ -788,7 +788,7 @@ class CalendarCsrfTests(TestCase):
         )
 
         with self.assertLogs('app.views.calendar.calendar', level='WARNING'):
-            response = self.client.patch(
+            response = self.client.post(
                 reverse('update_event', args=[event.id]),
                 data=self._update_payload(),
                 content_type='application/json',
@@ -807,7 +807,7 @@ class CalendarCsrfTests(TestCase):
             color='orange',
         )
 
-        response = self.client.patch(
+        response = self.client.post(
             reverse('update_event', args=[event.id]),
             data=self._update_payload(date='not-a-date'),
             content_type='application/json',
@@ -818,6 +818,25 @@ class CalendarCsrfTests(TestCase):
         self.assertEqual(response.json()['error'], 'date must be YYYY-MM-DD')
         event.refresh_from_db()
         self.assertEqual(event.date.isoformat(), '2026-06-12')
+
+    def test_update_event_accepts_patch_for_direct_clients(self):
+        event = Event.objects.create(
+            owner=self.user,
+            event_name='Dinner',
+            date='2026-06-12',
+            color='orange',
+        )
+
+        response = self.client.patch(
+            reverse('update_event', args=[event.id]),
+            data=self._update_payload(eventName='Direct client update'),
+            content_type='application/json',
+            **self._csrf_headers(),
+        )
+
+        event.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(event.event_name, 'Direct client update')
 
     def test_delete_event_without_csrf_token_is_forbidden(self):
         event = Event.objects.create(

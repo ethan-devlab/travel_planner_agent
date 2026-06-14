@@ -87,7 +87,7 @@
 
   function updateCalendarEvent(eventId, payload) {
     return fetchJson(API.updateEvent(eventId), {
-      method: 'PATCH',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': getCSRFToken(),
