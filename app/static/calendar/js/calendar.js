@@ -2,12 +2,15 @@
   const API = {
     events: '/api/events/',
     addEvent: '/api/add_event/',
+    updateEvent: (eventId) => '/api/update_event/' + eventId + '/',
     deleteEvent: (eventId) => '/api/delete_event/' + eventId + '/',
   };
 
   const SELECTORS = {
     calendar: '#calendar',
     addButton: '#add-event-button',
+    cancelButton: '#cancel-edit-button',
+    editStatus: '#event-edit-status',
     eventForm: '.event-form',
     eventName: '#event-name',
     eventDate: '#event-date',
@@ -17,6 +20,8 @@
   const MESSAGES = {
     addRequiredFields: '請填寫所有欄位',
     addFailed: '新增活動失敗，請重試',
+    editRequiredFields: '請填寫所有欄位',
+    editFailed: '修改活動失敗，請重試',
     deleteConfirm: '確定要刪除此活動嗎？',
     deleteFailed: '刪除失敗，請重試',
     emptyDay: '此日無活動',
@@ -30,6 +35,7 @@
   };
 
   const today = moment();
+  let editingEventId = null;
 
   function eventTypeFor(color) {
     return COLOR_TYPE_MAP[color] || '其他';
@@ -38,7 +44,7 @@
   function normalizeEvent(event) {
     const date = moment.isMoment(event.date) ? event.date : moment(event.date);
     return {
-      id: event.id,
+      id: String(event.id),
       eventName: event.eventName,
       calendar: event.calendar || event.color,
       color: event.color,
@@ -79,6 +85,17 @@
     });
   }
 
+  function updateCalendarEvent(eventId, payload) {
+    return fetchJson(API.updateEvent(eventId), {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': getCSRFToken(),
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
   function removeCalendarEvent(eventId) {
     return fetchJson(API.deleteEvent(eventId), {
       method: 'DELETE',
@@ -86,6 +103,69 @@
         'X-CSRFToken': getCSRFToken(),
       },
     });
+  }
+
+  function setFormMode(isEditing, event) {
+    const button = document.querySelector(SELECTORS.addButton);
+    const cancelButton = document.querySelector(SELECTORS.cancelButton);
+    const editStatus = document.querySelector(SELECTORS.editStatus);
+
+    if (button) {
+      button.innerHTML = isEditing
+        ? '<i class="ri-save-line"></i> 更新活動'
+        : '<i class="ri-add-line"></i> 新增活動';
+    }
+
+    if (cancelButton) {
+      cancelButton.hidden = !isEditing;
+    }
+
+    if (editStatus) {
+      editStatus.hidden = !isEditing;
+      editStatus.textContent = isEditing && event
+        ? '正在編輯「' + event.eventName + '」'
+        : '';
+    }
+  }
+
+  function clearEventForm() {
+    const name = document.querySelector(SELECTORS.eventName);
+    const date = document.querySelector(SELECTORS.eventDate);
+    const color = document.querySelector(SELECTORS.eventColor);
+
+    if (name) name.value = '';
+    if (date) date.value = '';
+    if (color) color.value = 'orange';
+  }
+
+  function populateEventForm(event) {
+    const name = document.querySelector(SELECTORS.eventName);
+    const date = document.querySelector(SELECTORS.eventDate);
+    const color = document.querySelector(SELECTORS.eventColor);
+
+    if (name) name.value = event.eventName || '';
+    if (date) date.value = event.date ? event.date.format('YYYY-MM-DD') : '';
+    if (color) color.value = event.color || 'orange';
+  }
+
+  function beginEditingEvent(event) {
+    editingEventId = event.id;
+    populateEventForm(event);
+    setFormMode(true, event);
+
+    const name = document.querySelector(SELECTORS.eventName);
+    if (name) {
+      name.focus();
+    }
+  }
+
+  function cancelEditingEvent() {
+    resetEventForm();
+  }
+
+  function getCurrentEditingEvent() {
+    if (!editingEventId) return null;
+    return globalThis.data?.find((event) => String(event.id) === String(editingEventId)) || null;
   }
 
   function Calendar(selector, events) {
@@ -326,7 +406,16 @@
     eventContent.appendChild(name);
     eventContent.appendChild(type);
 
-    const deleteBtn = createElement('button', 'delete-btn');
+    const editBtn = createElement('button', 'btn btn-outline-primary btn-sm');
+    editBtn.type = 'button';
+    editBtn.setAttribute('aria-label', '編輯活動');
+    editBtn.innerHTML = '<i class="ri-pencil-line"></i>';
+    editBtn.addEventListener('click', (eventObject) => {
+      eventObject.stopPropagation();
+      this.startEditingEvent(event.id);
+    });
+
+    const deleteBtn = createElement('button', 'btn btn-outline-danger btn-sm');
     deleteBtn.type = 'button';
     deleteBtn.setAttribute('aria-label', '刪除活動');
     deleteBtn.innerHTML = '<i class="ri-delete-bin-line"></i>';
@@ -336,8 +425,17 @@
     });
 
     eventDiv.appendChild(eventContent);
+    eventDiv.appendChild(editBtn);
     eventDiv.appendChild(deleteBtn);
     return eventDiv;
+  };
+
+  Calendar.prototype.startEditingEvent = function(eventId) {
+    const event = this.events.find((item) => String(item.id) === String(eventId));
+    if (!event) return;
+
+    beginEditingEvent(event);
+    this.openDayForDate(event.date);
   };
 
   Calendar.prototype.refreshDayIndicators = function(day) {
@@ -362,7 +460,7 @@
   Calendar.prototype.deleteEvent = async function(eventId, eventElement) {
     if (!confirm(MESSAGES.deleteConfirm)) return;
 
-    const deletedEvent = this.events.find((event) => event.id === eventId);
+    const deletedEvent = this.events.find((event) => String(event.id) === String(eventId));
 
     try {
       const data = await removeCalendarEvent(eventId);
@@ -370,7 +468,11 @@
         throw new Error(data.error || 'Delete response was not ok.');
       }
 
-      globalThis.data = globalThis.data.filter((event) => event.id !== eventId);
+      if (String(editingEventId) === String(eventId)) {
+        cancelEditingEvent();
+      }
+
+      globalThis.data = globalThis.data.filter((event) => String(event.id) !== String(eventId));
       this.setEvents(globalThis.data);
       this.removeEventElement(eventElement, deletedEvent?.date);
     } catch (error) {
@@ -420,6 +522,38 @@
     return div;
   }
 
+  function replaceEventInState(updatedEvent) {
+    globalThis.data = globalThis.data.map((event) => {
+      if (String(event.id) === String(updatedEvent.id)) {
+        return updatedEvent;
+      }
+      return event;
+    });
+
+    if (globalThis.calendar) {
+      globalThis.calendar.setEvents(globalThis.data);
+    }
+  }
+
+  function refreshCalendarAfterMutation(previousEvent, updatedEvent) {
+    if (!globalThis.calendar) return;
+
+    if (previousEvent?.date) {
+      globalThis.calendar.refreshDayIndicators(previousEvent.date);
+    }
+
+    globalThis.calendar.refreshDayIndicators(updatedEvent.date);
+
+    if (updatedEvent.date.isSame(globalThis.calendar.current, 'month')) {
+      globalThis.calendar.openDayForDate(updatedEvent.date);
+      return;
+    }
+
+    if (previousEvent?.date && previousEvent.date.isSame(globalThis.calendar.current, 'month')) {
+      globalThis.calendar.openDayForDate(previousEvent.date);
+    }
+  }
+
   function readEventForm() {
     return {
       name: document.querySelector(SELECTORS.eventName)?.value.trim() || '',
@@ -429,20 +563,49 @@
   }
 
   function resetEventForm() {
-    const name = document.querySelector(SELECTORS.eventName);
-    const date = document.querySelector(SELECTORS.eventDate);
-    const color = document.querySelector(SELECTORS.eventColor);
-
-    if (name) name.value = '';
-    if (date) date.value = '';
-    if (color) color.value = 'orange';
+    editingEventId = null;
+    clearEventForm();
+    setFormMode(false);
   }
 
-  async function addEvent() {
+  async function submitEventForm() {
     const form = readEventForm();
 
     if (!form.name || !form.date || !form.color) {
-      alert(MESSAGES.addRequiredFields);
+      alert(editingEventId ? MESSAGES.editRequiredFields : MESSAGES.addRequiredFields);
+      return;
+    }
+
+    if (editingEventId) {
+      const previousEvent = getCurrentEditingEvent();
+
+      try {
+        const data = await updateCalendarEvent(editingEventId, {
+          eventName: form.name,
+          date: form.date,
+          color: form.color,
+        });
+
+        if (data.status !== 'ok') {
+          throw new Error(data.error || 'Update response was not ok.');
+        }
+
+        const updatedPayload = data.event || {
+          id: editingEventId,
+          eventName: form.name,
+          calendar: form.color,
+          color: form.color,
+          date: form.date,
+        };
+        const updatedEvent = normalizeEvent(updatedPayload);
+
+        replaceEventInState(updatedEvent);
+        refreshCalendarAfterMutation(previousEvent, updatedEvent);
+        resetEventForm();
+      } catch (error) {
+        console.error('Update event failed.', error);
+        alert(MESSAGES.editFailed);
+      }
       return;
     }
 
@@ -459,10 +622,10 @@
 
       const event = normalizeEvent({
         id: data.id,
-        eventName: form.name,
-        calendar: form.color,
-        color: form.color,
-        date: form.date,
+        eventName: data.event?.eventName || form.name,
+        calendar: data.event?.calendar || form.color,
+        color: data.event?.color || form.color,
+        date: data.event?.date || form.date,
       });
 
       globalThis.data.push(event);
@@ -471,7 +634,7 @@
       resetEventForm();
       globalThis.calendar.openDayForDate(event.date);
     } catch (error) {
-      console.error('Add event failed.', error);
+      console.error('Calendar event save failed.', error);
       alert(MESSAGES.addFailed);
     }
   }
@@ -479,7 +642,14 @@
   function bindEventForm() {
     const button = document.querySelector(SELECTORS.addButton);
     if (button) {
-      button.addEventListener('click', addEvent);
+      button.addEventListener('click', submitEventForm);
+    }
+
+    const cancelButton = document.querySelector(SELECTORS.cancelButton);
+    if (cancelButton) {
+      cancelButton.addEventListener('click', () => {
+        resetEventForm();
+      });
     }
 
     const form = document.querySelector(SELECTORS.eventForm);
@@ -487,10 +657,12 @@
       form.addEventListener('keypress', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          addEvent();
+          submitEventForm();
         }
       });
     }
+
+    setFormMode(false);
   }
 
   async function initCalendar() {
@@ -516,7 +688,9 @@
   }
 
   globalThis.Calendar = Calendar;
-  globalThis.addEvent = addEvent;
+  globalThis.addEvent = submitEventForm;
+  globalThis.submitEventForm = submitEventForm;
+  globalThis.cancelCalendarEventEdit = resetEventForm;
 
   document.addEventListener('DOMContentLoaded', () => {
     bindEventForm();

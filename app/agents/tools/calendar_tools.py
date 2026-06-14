@@ -31,6 +31,24 @@ class CreateCalendarEventArgs(BaseModel):
     )
 
 
+class UpdateCalendarEventArgs(BaseModel):
+    event_id: uuid.UUID | str = Field(default="", description="Calendar event UUID.")
+    event_payload: CalendarEventPayload | dict | str | None = Field(
+        default=None,
+        description="Calendar event payload with eventName, date, and color.",
+    )
+
+
+def _serialize_event(event):
+    return {
+        "id": str(event.id),
+        "eventName": event.event_name,
+        "date": event.date.isoformat(),
+        "color": event.color,
+        "calendar": event.color,
+    }
+
+
 @planner_tool
 def list_calendar_events(start_date="", end_date=""):
     """List calendar events for the authenticated user."""
@@ -54,16 +72,7 @@ def list_calendar_events(start_date="", end_date=""):
     if end_value:
         queryset = queryset.filter(date__lte=end_value)
 
-    events = [
-        {
-            "id": str(event.id),
-            "eventName": event.event_name,
-            "date": event.date.isoformat(),
-            "color": event.color,
-            "calendar": event.color,
-        }
-        for event in queryset
-    ]
+    events = [_serialize_event(event) for event in queryset]
     logger.info(
         "calendar tool %s returned %s events for user %s with range start=%s end=%s.",
         tool_name,
@@ -121,13 +130,56 @@ def create_calendar_event(event_payload=None):
     return {
         "status": "ok",
         "tool": tool_name,
-        "event": {
-            "id": str(event.id),
-            "eventName": event.event_name,
-            "date": event.date.isoformat(),
-            "color": event.color,
-            "calendar": event.color,
-        },
+        "event": _serialize_event(event),
+    }
+
+
+@planner_tool(args_schema=UpdateCalendarEventArgs)
+def update_calendar_event(event_id=None, event_payload=None):
+    """Update a calendar event owned by the authenticated user."""
+    tool_name = "update_calendar_event"
+    user = get_current_planner_user()
+    auth_error = _require_authenticated_user(user, tool_name)
+    if auth_error:
+        return auth_error
+
+    event_pk, id_error = _parse_uuid(event_id)
+    if id_error:
+        return _error(tool_name, "invalid_event_id", "event_id must be a valid UUID.")
+
+    payload, error = _coerce_payload(event_payload, tool_name)
+    if error:
+        return error
+
+    event_name = str(payload.get("eventName") or "").strip()
+    event_date, date_error = _parse_required_date(payload.get("date"))
+    color = str(payload.get("color") or "").strip().lower()
+
+    if not event_name:
+        return _error(tool_name, "invalid_event_name", "eventName cannot be blank.")
+    if date_error:
+        logger.warning("calendar tool %s rejected invalid update date for user %s.", tool_name, user.id)
+        return _error(tool_name, "invalid_date", "date must be YYYY-MM-DD.")
+    if color not in ALLOWED_EVENT_COLORS:
+        logger.warning("calendar tool %s rejected invalid color for user %s.", tool_name, user.id)
+        return _error(tool_name, "invalid_color", "color must be one of orange, blue, yellow, or green.")
+
+    event = Event.objects.filter(owner=user, pk=event_pk).first()
+    if event is None:
+        logger.warning("calendar tool %s denied update for event %s and user %s.", tool_name, event_pk, user.id)
+        return _error(tool_name, "event_not_found", "No owned event was found.")
+
+    with transaction.atomic():
+        event.event_name = event_name
+        event.date = event_date
+        event.color = color
+        event.save(update_fields=["event_name", "date", "color"])
+
+    logger.info("calendar tool %s updated event %s for user %s.", tool_name, event_pk, user.id)
+    return {
+        "status": "ok",
+        "tool": tool_name,
+        "event": _serialize_event(event),
     }
 
 
@@ -222,5 +274,6 @@ def _error(tool_name, error_code, message):
 TOOLS = (
     list_calendar_events,
     create_calendar_event,
+    update_calendar_event,
     delete_calendar_event,
 )
