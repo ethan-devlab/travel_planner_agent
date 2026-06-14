@@ -413,62 +413,45 @@
             return cookie ? decodeURIComponent(cookie.split('=').slice(1).join('=')) : '';
         }
 
-        function clearContent() {
-            content.replaceChildren();
+        function escapeHtml(value) {
+            return String(value || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         function renderList(label, values) {
             if (!Array.isArray(values) || values.length === 0) {
-                return;
+                return '';
             }
-            const heading = document.createElement('h6');
-            heading.textContent = label;
-            const list = document.createElement('ul');
-            values.forEach((value) => {
-                const item = document.createElement('li');
-                item.textContent = String(value || '');
-                list.appendChild(item);
-            });
-            content.append(heading, list);
+            const items = values.map((value) => `<li>${escapeHtml(value)}</li>`).join('');
+            return `<h6>${label}</h6><ul>${items}</ul>`;
         }
 
         function renderKeyData(values) {
             if (!Array.isArray(values) || values.length === 0) {
-                return;
+                return '';
             }
-            const heading = document.createElement('h6');
-            heading.textContent = '重點資料';
-            const keyData = document.createElement('div');
-            keyData.className = 'ai-check-key-data';
-            values.forEach((item) => {
-                const row = document.createElement('div');
-                const label = document.createElement('strong');
-                label.textContent = String(item.label || '');
-                const value = document.createElement('span');
-                value.textContent = String(item.value || '');
-                row.append(label, document.createElement('br'), value);
-                keyData.appendChild(row);
-            });
-            content.append(heading, keyData);
+            const items = values.map((item) => (
+                `<div><strong>${escapeHtml(item.label)}</strong><br>${escapeHtml(item.value)}</div>`
+            )).join('');
+            return `<h6>Key data</h6><div class="ai-check-key-data">${items}</div>`;
         }
 
         function renderCard(data) {
-            clearContent();
-            const summary = document.createElement('p');
-            summary.textContent = data.summary || 'AI 行程檢查已完成。';
-            content.appendChild(summary);
-            renderList('檢查結果', data.actions);
-            renderKeyData(data.key_data);
-            renderList('建議下一步', data.next_steps);
+            content.innerHTML = [
+                `<p>${escapeHtml(data.summary || 'AI 行程檢查已完成。')}</p>`,
+                renderList('Actions', data.actions),
+                renderKeyData(data.key_data),
+                renderList('Next steps', data.next_steps),
+            ].join('');
         }
 
         function showLoading(checkType) {
             title.textContent = titles[checkType] || 'AI 行程檢查';
-            clearContent();
-            const message = document.createElement('p');
-            message.className = 'ai-check-empty';
-            message.textContent = 'AI 正在檢查已儲存的行程...';
-            content.appendChild(message);
+            content.innerHTML = '<p class="ai-check-empty">AI 正在檢查已儲存的行程...</p>';
             panel.hidden = false;
             menu.hidden = true;
         }
@@ -491,11 +474,7 @@
                 }
                 renderCard(data);
             } catch (error) {
-                clearContent();
-                const message = document.createElement('p');
-                message.className = 'ai-check-empty';
-                message.textContent = error.message;
-                content.appendChild(message);
+                content.innerHTML = `<p class="ai-check-empty">${escapeHtml(error.message)}</p>`;
             }
         }
 
