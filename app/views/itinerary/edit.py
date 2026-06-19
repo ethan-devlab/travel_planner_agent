@@ -37,6 +37,33 @@ AI_ITINERARY_CHECK_FOCUS = {
     "route": "route order, route coordinates, travel methods, and route feasibility between saved stops",
     "budget": "budget, recorded expenses, expense coverage, and whether the trip is at risk of going over budget",
 }
+AI_ITINERARY_CHECK_EVIDENCE_INSTRUCTIONS = {
+    "overall": "Use the computed routes, route-order analysis, and location geographies as evidence.",
+    "stops": (
+        "Use location geographies as evidence. Route and route-order analyses were intentionally not requested "
+        "for this stop check. Do not describe route evidence as unavailable, failed, or missing, and do not make "
+        "claims about route order or transport connections."
+    ),
+    "route": "Use the computed routes and route-order analysis as evidence.",
+    "budget": (
+        "Use saved budget and expense facts as evidence. Route, route-order, and geography analyses were "
+        "intentionally not requested for this budget check."
+    ),
+}
+AI_CHECK_DATA_SOURCES = {
+    "route": [{
+        "provider": "OSRM",
+        "label": "路線資料：OSRM / © OpenStreetMap contributors",
+        "url": "https://www.openstreetmap.org/copyright",
+    }],
+    "stops": [{
+        "provider": "Nominatim",
+        "label": "地理資料：Nominatim / © OpenStreetMap contributors",
+        "url": "https://www.openstreetmap.org/copyright",
+    }],
+    "budget": [],
+}
+AI_CHECK_DATA_SOURCES["overall"] = AI_CHECK_DATA_SOURCES["route"] + AI_CHECK_DATA_SOURCES["stops"]
 
 
 def _can_edit_itinerary(itinerary, user):
@@ -114,10 +141,20 @@ def ai_itinerary_check(request, id):
         }, status=400)
 
     focus = AI_ITINERARY_CHECK_FOCUS[check_type]
+    evidence_instructions = AI_ITINERARY_CHECK_EVIDENCE_INSTRUCTIONS[check_type]
+    route_instructions = ""
+    if check_type in {"overall", "route"}:
+        route_instructions = (
+            "Never use the term 路線腿; call each calculated connection 路線. "
+            "When route-order analysis is not_applicable, explain its reason field in user-friendly Traditional Chinese. "
+        )
     prompt = (
-        f"Review itinerary_id={itinerary.id} using review_itinerary_on_request. "
+        f"Review itinerary_id={itinerary.id} using review_itinerary_on_request with check_type={check_type}. "
         f"Focus on {focus}. "
         "Do not ask for confirmation, do not modify the itinerary, and do not use unsaved form data. "
+        f"{evidence_instructions} "
+        f"{route_instructions}"
+        "Include relevant distance/time or city/country facts in key_data and clearly label unavailable checks. "
         "Return a concise structured review with summary, actions, key_data, and next_steps."
     )
 
@@ -153,4 +190,5 @@ def ai_itinerary_check(request, id):
         "actions": card["actions"],
         "key_data": card["key_data"],
         "next_steps": card["next_steps"],
+        "data_sources": AI_CHECK_DATA_SOURCES[check_type],
     })

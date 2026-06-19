@@ -151,6 +151,10 @@ if not DEBUG and not RUNNING_TESTS:
 
 LOGIN_URL = '/login/'
 ROUTING_SERVICE_URL = os.getenv('ROUTING_SERVICE_URL', 'router.project-osrm.org')
+NOMINATIM_BASE_URL = os.getenv('NOMINATIM_BASE_URL', 'https://nominatim.openstreetmap.org')
+NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'TravelPlannerAgent/1.0 (itinerary geocoding)')
+NOMINATIM_MIN_INTERVAL_SECONDS = float(os.getenv('NOMINATIM_MIN_INTERVAL_SECONDS', '1.0'))
+REVERSE_GEOCODE_CACHE_DAYS = int(os.getenv('REVERSE_GEOCODE_CACHE_DAYS', '90'))
 GEOCODING_URL = os.getenv('GEOCODING_URL', 'https://api.openweathermap.org/geo/1.0/direct')
 CURRENT_WEATHER_URL = os.getenv('CURRENT_WEATHER_URL', 'https://api.openweathermap.org/data/2.5/weather')
 FORECAST_URL = os.getenv('FORECAST_URL', 'https://api.openweathermap.org/data/2.5/forecast')

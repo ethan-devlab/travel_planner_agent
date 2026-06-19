@@ -192,7 +192,7 @@
                         <div class="form-group">
                             <label class="form-label" for="travel_method_{{ forloop.counter0 }}">
                                 <i class="ri-road-map-line"></i>
-                                旅遊方式
+                                前往此景點的交通方式
                             </label>
                             <select name="travel_method[]" class="form-select" id="travel_method_{{ forloop.counter0 }}">
                                 <option value="">選擇方式</option>
@@ -293,7 +293,7 @@
                             <input type="text" name="location_name[]" class="form-control" id="location_name_{{ forloop.counter0 }}">
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="travel_method_{{ forloop.counter0 }}"><i class="ri-road-map-line"></i>旅遊方式</label>
+                            <label class="form-label" for="travel_method_{{ forloop.counter0 }}"><i class="ri-road-map-line"></i>前往此景點的交通方式</label>
                             <select name="travel_method[]" class="form-select" id="travel_method_{{ forloop.counter0 }}">
                                 <option value="">選擇方式</option>
                                 <option value="walk">步行</option>
@@ -440,12 +440,23 @@
             return `<h6>Key data</h6><div class="ai-check-key-data">${items}</div>`;
         }
 
+        function renderDataSources(values) {
+            if (!Array.isArray(values) || values.length === 0) {
+                return '';
+            }
+            const items = values.map((item) => (
+                `<li><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label)}</a></li>`
+            )).join('');
+            return `<h6>資料來源</h6><ul>${items}</ul>`;
+        }
+
         function renderCard(data) {
             content.innerHTML = [
                 `<p>${escapeHtml(data.summary || 'AI 行程檢查已完成。')}</p>`,
                 renderList('Actions', data.actions),
                 renderKeyData(data.key_data),
                 renderList('Next steps', data.next_steps),
+                renderDataSources(data.data_sources),
             ].join('');
         }
 

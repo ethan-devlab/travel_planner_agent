@@ -79,3 +79,11 @@ Route planning is available on the create and edit itinerary pages.
 5. Save the itinerary. The selected latitude, longitude, and route order are stored with each location.
 
 If `ROUTING_SERVICE_URL` is not configured, the map still saves location markers, but route lines are not requested. Set `ROUTING_SERVICE_URL` to an OSRM-compatible service URL to enable route drawing.
+
+## AI Itinerary Checks
+
+The edit page can review the saved itinerary with four focuses: overall, stops, route, or budget. Unsaved form changes are intentionally excluded.
+
+Route checks treat each location's transportation method as the incoming leg from the previous stop; the first stop's method is ignored. Car timing uses the configured OSRM driving service. Walking time is estimated from straight-line distance, while bus, train, HSR, plane, and boat legs are marked for manual schedule confirmation. Time-gap checks compare saved stop start times only and do not include time spent at each attraction.
+
+Stop checks resolve city and country from saved coordinates with Nominatim. Results are cached for 90 days by default and public-service requests are throttled. Configure `NOMINATIM_BASE_URL`, `NOMINATIM_USER_AGENT`, `NOMINATIM_MIN_INTERVAL_SECONDS`, and `REVERSE_GEOCODE_CACHE_DAYS` for the deployment. Public Nominatim is intended only for moderate user-triggered use; larger deployments should use a hosted or self-managed provider.

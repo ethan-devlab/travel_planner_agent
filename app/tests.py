@@ -1,6 +1,7 @@
 import json
 import re
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -583,6 +584,8 @@ class ItineraryEditPersistenceTests(TestCase):
         self.assertContains(response, reverse('ai_itinerary_check', args=[itinerary.id]))
         self.assertContains(response, 'data-check-type="overall"')
         self.assertContains(response, 'data-check-type="budget"')
+        self.assertContains(response, '前往此景點的交通方式')
+        self.assertContains(response, 'data.data_sources')
 
     def test_ai_itinerary_check_rejects_non_collaborator(self):
         itinerary = self._itinerary(is_public=True)
@@ -647,11 +650,50 @@ class ItineraryEditPersistenceTests(TestCase):
         self.assertTrue(payload['success'])
         self.assertEqual(payload['check_type'], 'route')
         self.assertEqual(payload['summary'], 'Route and budget look reviewable.')
+        self.assertEqual(payload['data_sources'][0]['provider'], 'OSRM')
         self.assertIn(f'itinerary_id={itinerary.id}', prompt)
         self.assertIn('review_itinerary_on_request', prompt)
+        self.assertIn('check_type=route', prompt)
+        self.assertIn('Never use the term 路線腿', prompt)
         self.assertIn('Do not ask for confirmation', prompt)
         model_mock.assert_called_once_with()
         agent_mock.assert_called_once()
+
+    def test_ai_stop_check_marks_route_analysis_as_not_requested(self):
+        itinerary = self._itinerary()
+
+        class FakeAgent:
+            payload = None
+
+            def invoke(self, payload):
+                self.payload = payload
+                return {
+                    'structured_response': {
+                        'summary': 'Stop geography reviewed.',
+                        'actions': [],
+                        'key_data': [],
+                        'next_steps': [],
+                    }
+                }
+
+        fake_agent = FakeAgent()
+        with patch(
+            'app.views.itinerary.edit.build_openai_chat_model',
+            return_value=object(),
+        ), patch(
+            'app.views.itinerary.edit.build_planner_agent',
+            return_value=fake_agent,
+        ):
+            response = self.client.post(
+                reverse('ai_itinerary_check', args=[itinerary.id]),
+                data=json.dumps({'check_type': 'stops'}),
+                content_type='application/json',
+            )
+
+        prompt = fake_agent.payload['messages'][0]['content']
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Route and route-order analyses were intentionally not requested', prompt)
+        self.assertIn('Do not describe route evidence as unavailable, failed, or missing', prompt)
 
     def test_ai_itinerary_check_returns_safe_configuration_error(self):
         from app.agents.planner_agent import PlannerAgentConfigurationError
@@ -1258,7 +1300,7 @@ class ItineraryManagementTests(TestCase):
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['action'], 'created')
         self.assertEqual(itinerary.owner, self.owner)
-        self.assertEqual(list(itinerary.tags.values_list('name', flat=True)), ['food', 'weekend'])
+        self.assertEqual(set(itinerary.tags.values_list('name', flat=True)), {'food', 'weekend'})
         self.assertEqual(list(itinerary.collaborators.values_list('username', flat=True)), ['trip-helper'])
         self.assertEqual(location.expenses.get().amount, Decimal('15.50'))
         self.assertNotIn('DO_NOT_LOG_SECRET', log_text)
@@ -1286,8 +1328,8 @@ class ItineraryManagementTests(TestCase):
             FakeResponse([{'lat': '35.6586', 'lon': '139.7454'}]),
             FakeResponse([{'lat': '35.7148', 'lon': '139.7967'}]),
         ]
-        with patch('app.agents.services.itinerary_management._throttle_nominatim_request'), patch(
-            'app.agents.services.itinerary_management.requests.get',
+        with patch('app.agents.services.nominatim._throttle_request'), patch(
+            'app.agents.services.nominatim.requests.get',
             side_effect=nominatim_results,
         ) as request_mock:
             result = create_or_update_itinerary_for_user(self.owner, {
@@ -1318,8 +1360,8 @@ class ItineraryManagementTests(TestCase):
         from app.agents.services.itinerary_management import create_or_update_itinerary_for_user
 
         response = FakeResponse([{'lat': '35.6586', 'lon': '139.7454'}])
-        with patch('app.agents.services.itinerary_management._throttle_nominatim_request'), patch(
-            'app.agents.services.itinerary_management.requests.get',
+        with patch('app.agents.services.nominatim._throttle_request'), patch(
+            'app.agents.services.nominatim.requests.get',
             return_value=response,
         ) as geocode_mock:
             result = create_or_update_itinerary_for_user(self.owner, {
@@ -1347,9 +1389,9 @@ class ItineraryManagementTests(TestCase):
 
         response = FakeResponse([{'lat': '35.6586', 'lon': '139.7454'}])
         with patch(
-            'app.agents.services.itinerary_management._throttle_nominatim_request',
+            'app.agents.services.nominatim._throttle_request',
         ), patch(
-            'app.agents.services.itinerary_management.requests.get',
+            'app.agents.services.nominatim.requests.get',
             return_value=response,
         ) as request_mock:
             result = create_or_update_itinerary_for_user(self.owner, {
@@ -1672,6 +1714,7 @@ class PlannerAgentToolRegistryTests(TestCase):
         self.assertIn('造訪日期', PLANNER_AGENT_SYSTEM_PROMPT)
         self.assertIn('預算', PLANNER_AGENT_SYSTEM_PROMPT)
         self.assertIn('路線', PLANNER_AGENT_SYSTEM_PROMPT)
+        self.assertIn('Never use 路線腿', PLANNER_AGENT_SYSTEM_PROMPT)
         self.assertIn('concise Traditional Chinese', PLANNER_AGENT_SYSTEM_PROMPT)
 
     def test_registry_exposes_exactly_five_documented_tool_groups(self):
@@ -1725,7 +1768,7 @@ class PlannerAgentToolTests(TestCase):
         location.expenses.create(expense_type='ticket', amount='500.00')
 
         with self.assertLogs('app.agents.tools.review_tools', level='INFO') as logs, planner_tool_user(self.owner):
-            result = invoke_tool(review_itinerary_on_request, itinerary_id=str(itinerary.id), review_focus='budget and route')
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=str(itinerary.id), check_type='budget')
 
         log_text = ' '.join(logs.output)
         self.assertEqual(result['status'], 'ok')
@@ -1733,6 +1776,11 @@ class PlannerAgentToolTests(TestCase):
         self.assertEqual(result['itinerary_id'], str(itinerary.id))
         self.assertEqual(result['review_summary']['relationship'], 'owner')
         self.assertEqual(result['review_summary']['route_waypoint_count'], 1)
+        self.assertEqual(result['review_summary']['calculated_route_count'], 0)
+        self.assertNotIn('route_leg_count', result['review_summary'])
+        self.assertEqual(result['routes'], [])
+        self.assertNotIn('route_legs', result)
+        self.assertEqual(result['route_order_analysis']['status'], 'not_requested')
         self.assertEqual(result['review_summary']['expense_total'], '500.00')
         self.assertEqual(result['saved_locations'][0]['name'], 'Taipei 101')
         self.assertEqual(result['saved_locations'][0]['travel_method'], 'walk')
@@ -1752,7 +1800,7 @@ class PlannerAgentToolTests(TestCase):
         itinerary.collaborators.add(self.collaborator)
 
         with planner_tool_user(self.collaborator):
-            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id, check_type='budget')
 
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['review_summary']['relationship'], 'collaborator')
@@ -1776,6 +1824,21 @@ class PlannerAgentToolTests(TestCase):
 
         self.assertEqual(result['status'], 'error')
         self.assertEqual(result['error_code'], 'invalid_itinerary_id')
+
+    def test_review_rejects_invalid_check_type(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary()
+        with planner_tool_user(self.owner):
+            result = invoke_tool(
+                review_itinerary_on_request,
+                itinerary_id=itinerary.id,
+                check_type='unknown',
+            )
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['error_code'], 'invalid_check_type')
 
     def test_private_itinerary_review_denies_non_collaborator(self):
         from app.agents.tool_context import planner_tool_user
@@ -1804,17 +1867,17 @@ class PlannerAgentToolTests(TestCase):
         )
 
         with planner_tool_user(self.owner):
-            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id, check_type='budget')
 
         guidance = result['ai_review_guidance']
         guidance_text = json.dumps(guidance, ensure_ascii=False)
-        self.assertIn('行程標題', guidance_text)
-        self.assertIn('目的地', guidance_text)
-        self.assertIn('景點名稱', guidance_text)
-        self.assertIn('同一國家、城市、區域或合理旅遊範圍', guidance_text)
-        self.assertIn('疑似不同國家或地區', guidance_text)
+        self.assertIn('location_geographies', guidance_text)
+        self.assertIn('城市與國家證據', guidance_text)
         self.assertIn('跨國行程', guidance_text)
-        self.assertIn('標明跨國安排', guidance_text)
+        self.assertIn('routes', guidance_text)
+        self.assertNotIn('route_legs', guidance_text)
+        self.assertIn('verification_required', guidance_text)
+        self.assertIn('not_requested', guidance_text)
         self.assertIn('visibility', guidance)
         self.assertEqual(result['review_summary']['title'], 'Japan Trip')
         self.assertEqual(result['review_summary']['destination'], 'Tokyo, Japan')
@@ -1849,7 +1912,7 @@ class PlannerAgentToolTests(TestCase):
         }
 
         with planner_tool_user(self.owner):
-            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id)
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id, check_type='budget')
 
         itinerary.refresh_from_db()
         location.refresh_from_db()
@@ -2075,6 +2138,341 @@ class PlannerAgentToolTests(TestCase):
         new_itinerary = Itinerary.objects.get(id=result['new_itinerary_id'])
         self.assertEqual(set(new_itinerary.tags.values_list('name', flat=True)), {'food', 'family'})
         self.assertEqual(new_itinerary.collaborators.count(), 0)
+
+
+@override_settings(ROUTING_SERVICE_URL='https://router.project-osrm.org')
+class ItineraryReviewEvidenceTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(username='evidence-owner', password='password123')
+        self.itinerary = Itinerary.objects.create(
+            owner=self.owner,
+            title='Evidence Trip',
+            start_date='2026-06-01',
+            end_date='2026-06-03',
+            location='Taipei',
+            budget='1000.00',
+            status='draft',
+        )
+
+    def _stop(self, name, visit_date, latitude, longitude, route_order, travel_method='car'):
+        return self.itinerary.locations.create(
+            name=name,
+            visit_date=visit_date,
+            latitude=latitude,
+            longitude=longitude,
+            route_order=route_order,
+            travel_method=travel_method,
+        )
+
+    def _route_payload(self, durations, distances=None, snap_distances=None):
+        distances = distances or [1000.0 for _ in durations]
+        snap_distances = snap_distances or [10.0 for _ in range(len(durations) + 1)]
+        return {
+            'code': 'Ok',
+            'routes': [{
+                'duration': sum(durations),
+                'distance': sum(distances),
+                'legs': [
+                    {'duration': duration, 'distance': distance}
+                    for duration, distance in zip(durations, distances)
+                ],
+            }],
+            'waypoints': [{'distance': distance} for distance in snap_distances],
+        }
+
+    def _trip_payload(self, duration, waypoint_order):
+        return {
+            'code': 'Ok',
+            'trips': [{'duration': duration, 'distance': 5000.0, 'legs': []}],
+            'waypoints': [
+                {'waypoint_index': optimized_index, 'trips_index': 0}
+                for optimized_index in waypoint_order
+            ],
+        }
+
+    def test_route_evidence_marks_insufficient_car_gap_and_detour(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+
+        self._stop('A', '2026-06-01T09:00:00+08:00', 25.00, 121.50, 0)
+        self._stop('B', '2026-06-01T09:30:00+08:00', 25.01, 121.51, 1)
+        self._stop('C', '2026-06-01T10:00:00+08:00', 25.02, 121.52, 2)
+        self._stop('D', '2026-06-01T10:30:00+08:00', 25.03, 121.53, 3)
+        route = self._route_payload([2400.0, 2400.0, 2400.0])
+        trip = self._trip_payload(4800.0, [0, 2, 1, 3])
+
+        with patch('app.agents.services.route_review.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'route',
+            )
+
+        self.assertEqual(evidence['route_legs'][0]['method'], 'car')
+        self.assertEqual(evidence['route_legs'][0]['status'], 'insufficient')
+        self.assertEqual(evidence['route_legs'][0]['available_minutes'], 30.0)
+        self.assertEqual(evidence['route_legs'][0]['estimated_minutes'], 40.0)
+        self.assertEqual(evidence['route_order_analysis']['status'], 'detour')
+        self.assertEqual(evidence['route_order_analysis']['suggested_order'], ['A', 'C', 'B', 'D'])
+        self.assertIn('route_interval_insufficient', {risk['code'] for risk in evidence['risks']})
+        self.assertIn('route_detour', {risk['code'] for risk in evidence['risks']})
+
+    def test_route_evidence_requires_both_detour_thresholds(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+
+        self._stop('A', '2026-06-01T09:00:00+08:00', 25.00, 121.50, 0)
+        self._stop('B', '2026-06-01T10:00:00+08:00', 25.01, 121.51, 1)
+        self._stop('C', '2026-06-01T11:00:00+08:00', 25.02, 121.52, 2)
+        route = self._route_payload([1500.0, 1500.0])
+        trip = self._trip_payload(2400.0, [0, 1, 2])
+
+        with patch('app.agents.services.route_review.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'route',
+            )
+
+        self.assertEqual(evidence['route_order_analysis']['status'], 'acceptable')
+        self.assertTrue(all(leg['status'] == 'sufficient' for leg in evidence['route_legs']))
+        self.assertNotIn('route_detour', {risk['code'] for risk in evidence['risks']})
+
+    def test_route_evidence_handles_same_coordinates_and_distant_road_snap(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+
+        self._stop('A', '2026-06-01T09:00:00+08:00', 25.00, 121.50, 0)
+        self._stop('B', '2026-06-01T10:00:00+08:00', 25.00, 121.50, 1)
+        route = self._route_payload([0.0], distances=[0.0], snap_distances=[10.0, 600.0])
+
+        with patch('app.agents.services.route_review.requests.get', return_value=FakeResponse(route)):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'route',
+            )
+
+        self.assertEqual(evidence['route_legs'][0]['distance_km'], 0.0)
+        self.assertEqual(evidence['route_legs'][0]['status'], 'coordinate_far_from_road')
+        self.assertIn('route_coordinate_far_from_road', {risk['code'] for risk in evidence['risks']})
+
+    def test_route_evidence_handles_walking_transit_plane_and_reversed_time(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+
+        self._stop('A', '2026-06-01T09:00:00+08:00', 25.000, 121.500, 0, 'walk')
+        self._stop('B', '2026-06-01T09:20:00+08:00', 25.010, 121.500, 1, 'walk')
+        self._stop('C', '2026-06-01T10:00:00+08:00', 25.020, 121.500, 2, 'train')
+        self._stop('D', '2026-06-01T09:50:00+08:00', 25.021, 121.500, 3, 'plane')
+        route = self._route_payload([600.0, 600.0, 600.0])
+        trip = self._trip_payload(1800.0, [0, 1, 2, 3])
+
+        with patch('app.agents.services.route_review.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'route',
+            )
+
+        self.assertEqual(evidence['route_legs'][0]['status'], 'tight')
+        self.assertEqual(evidence['route_legs'][1]['status'], 'verification_required')
+        self.assertEqual(evidence['route_legs'][2]['status'], 'chronological_conflict')
+        risk_codes = {risk['code'] for risk in evidence['risks']}
+        self.assertIn('route_interval_tight', risk_codes)
+        self.assertIn('transport_verification_required', risk_codes)
+        self.assertIn('short_plane_leg', risk_codes)
+        self.assertIn('route_chronological_conflict', risk_codes)
+
+    def test_route_evidence_skips_cross_day_gaps_and_handles_no_route(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+
+        self._stop('A', '2026-06-01T23:00:00+08:00', 25.00, 121.50, 0)
+        self._stop('B', '2026-06-02T08:00:00+08:00', 25.01, 121.51, 1)
+        self._stop('C', '2026-06-02T09:00:00+08:00', 25.02, 121.52, 2)
+        no_route = {'code': 'NoRoute', 'message': 'No route found'}
+
+        with patch('app.agents.services.route_review.requests.get', return_value=FakeResponse(no_route)):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'route',
+            )
+
+        self.assertEqual(len(evidence['route_legs']), 1)
+        self.assertEqual(evidence['route_legs'][0]['origin'], 'B')
+        self.assertEqual(evidence['route_legs'][0]['status'], 'route_unavailable')
+        self.assertIn('route_service_unavailable', {risk['code'] for risk in evidence['risks']})
+
+    def test_route_order_not_applicable_explains_same_day_requirement(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+
+        self._stop('A', '2026-06-01T09:00:00+08:00', 25.00, 121.50, 0)
+        self._stop('B', '2026-06-01T10:00:00+08:00', 25.01, 121.51, 1)
+        self._stop('C', '2026-06-02T09:00:00+08:00', 25.02, 121.52, 2)
+        self._stop('D', '2026-06-03T09:00:00+08:00', 25.03, 121.53, 3)
+        route = self._route_payload([600.0])
+
+        with patch('app.agents.services.route_review.requests.get', return_value=FakeResponse(route)):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'route',
+            )
+
+        analysis = evidence['route_order_analysis']
+        self.assertEqual(len(evidence['route_legs']), 1)
+        self.assertEqual(analysis['status'], 'not_applicable')
+        self.assertEqual(analysis['reason_code'], 'fewer_than_three_same_day_stops')
+        self.assertEqual(analysis['max_same_day_stop_count'], 2)
+        self.assertEqual(analysis['required_same_day_stop_count'], 3)
+        self.assertIn('at least three stops on the same local date', analysis['reason'])
+
+    def test_stop_geography_uses_cache_and_city_fallback(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+        from app.models import ReverseGeocodeCache
+
+        self._stop('Town Stop', '2026-06-01T09:00:00+08:00', 25.0339, 121.5645, 0)
+        payload = {
+            'display_name': 'Xinyi, Taipei, Taiwan',
+            'address': {
+                'town': 'Taipei',
+                'state': 'Taiwan',
+                'country': 'Taiwan',
+                'country_code': 'tw',
+            },
+        }
+
+        with patch('app.agents.services.nominatim._throttle_request'), patch(
+            'app.agents.services.nominatim.requests.get',
+            return_value=FakeResponse(payload),
+        ) as request_mock:
+            first = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'stops',
+            )
+
+        with patch('app.agents.services.nominatim.requests.get') as cached_request:
+            second = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'stops',
+            )
+
+        self.assertEqual(first['location_geographies'][0]['city'], 'Taipei')
+        self.assertEqual(first['location_geographies'][0]['country_code'], 'TW')
+        self.assertFalse(first['location_geographies'][0]['stale'])
+        self.assertEqual(second['location_geographies'][0]['cache_status'], 'hit')
+        self.assertEqual(ReverseGeocodeCache.objects.count(), 1)
+        request_mock.assert_called_once()
+        self.assertEqual(request_mock.call_args.kwargs['params']['format'], 'jsonv2')
+        self.assertEqual(request_mock.call_args.kwargs['params']['addressdetails'], 1)
+        self.assertEqual(request_mock.call_args.kwargs['params']['layer'], 'address')
+        self.assertIn('User-Agent', request_mock.call_args.kwargs['headers'])
+        cached_request.assert_not_called()
+
+    def test_stop_geography_returns_stale_cache_when_refresh_fails(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+        from app.models import ReverseGeocodeCache
+
+        self._stop('Cached Stop', '2026-06-01T09:00:00+08:00', 25.0339, 121.5645, 0)
+        ReverseGeocodeCache.objects.create(
+            provider='nominatim',
+            coordinate_key='25.03390,121.56450',
+            latitude=25.0339,
+            longitude=121.5645,
+            city='Taipei',
+            state='Taiwan',
+            country='Taiwan',
+            country_code='TW',
+            display_name='Taipei, Taiwan',
+        )
+        ReverseGeocodeCache.objects.update(updated_at=timezone.now() - timedelta(days=91))
+
+        with patch('app.agents.services.nominatim._throttle_request'), patch(
+            'app.agents.services.nominatim.requests.get',
+            side_effect=requests.Timeout('provider timeout'),
+        ):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'stops',
+            )
+
+        self.assertTrue(evidence['location_geographies'][0]['stale'])
+        self.assertEqual(evidence['location_geographies'][0]['cache_status'], 'stale')
+        self.assertNotIn('geography_unavailable', {risk['code'] for risk in evidence['risks']})
+
+    def test_stop_geography_reports_provider_failure_without_cache(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+
+        self._stop('Uncached Stop', '2026-06-01T09:00:00+08:00', 25.0339, 121.5645, 0)
+        with patch('app.agents.services.nominatim._throttle_request'), patch(
+            'app.agents.services.nominatim.requests.get',
+            side_effect=requests.Timeout('provider timeout'),
+        ):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'stops',
+            )
+
+        self.assertEqual(evidence['location_geographies'][0]['status'], 'geography_unavailable')
+        self.assertIn('geography_unavailable', {risk['code'] for risk in evidence['risks']})
+
+    def test_stop_geography_warns_for_multiple_countries_and_missing_coordinates(self):
+        from app.agents.services.itinerary_review import build_itinerary_review_evidence
+
+        self._stop('Taipei Stop', '2026-06-01T09:00:00+08:00', 25.0339, 121.5645, 0)
+        self._stop('Tokyo Stop', '2026-06-01T10:00:00+08:00', 35.6586, 139.7454, 1)
+        self._stop('Missing Stop', '2026-06-01T11:00:00+08:00', 0, 0, 2)
+        payloads = [
+            {'display_name': 'Taipei, Taiwan', 'address': {'city': 'Taipei', 'country': 'Taiwan', 'country_code': 'tw'}},
+            {'display_name': 'Tokyo, Japan', 'address': {'city': 'Tokyo', 'country': 'Japan', 'country_code': 'jp'}},
+        ]
+
+        with patch('app.agents.services.nominatim._throttle_request'), patch(
+            'app.agents.services.nominatim.requests.get',
+            side_effect=[FakeResponse(payload) for payload in payloads],
+        ):
+            evidence = build_itinerary_review_evidence(
+                self.itinerary,
+                list(self.itinerary.locations.all()),
+                'stops',
+            )
+
+        risk_codes = {risk['code'] for risk in evidence['risks']}
+        self.assertIn('multiple_countries', risk_codes)
+        self.assertIn('geography_missing_coordinates', risk_codes)
+        self.assertEqual(evidence['location_geographies'][2]['status'], 'geography_unavailable')
+
+    def test_check_type_gates_route_and_geography_analysis(self):
+        from app.agents.services import itinerary_review
+
+        with patch.object(itinerary_review, 'analyze_route_evidence', return_value={
+            'route_legs': [], 'route_order_analysis': {'status': 'not_run'}, 'risks': [], 'suggested_next_actions': [],
+        }) as route_mock, patch.object(itinerary_review, 'analyze_geography_evidence', return_value={
+            'location_geographies': [], 'risks': [], 'suggested_next_actions': [],
+        }) as geography_mock:
+            itinerary_review.build_itinerary_review_evidence(self.itinerary, [], 'route')
+            route_mock.assert_called_once()
+            geography_mock.assert_not_called()
+
+            route_mock.reset_mock()
+            stops_evidence = itinerary_review.build_itinerary_review_evidence(self.itinerary, [], 'stops')
+            route_mock.assert_not_called()
+            geography_mock.assert_called_once()
+            self.assertEqual(stops_evidence['route_order_analysis']['status'], 'not_requested')
+            self.assertEqual(
+                stops_evidence['route_order_analysis']['reason_code'],
+                'route_check_not_requested',
+            )
+
+            geography_mock.reset_mock()
+            itinerary_review.build_itinerary_review_evidence(self.itinerary, [], 'budget')
+            route_mock.assert_not_called()
+            geography_mock.assert_not_called()
+
+            itinerary_review.build_itinerary_review_evidence(self.itinerary, [], 'overall')
+            route_mock.assert_called_once()
+            geography_mock.assert_called_once()
 
 
 class ItineraryDiscoveryViewTests(TestCase):
