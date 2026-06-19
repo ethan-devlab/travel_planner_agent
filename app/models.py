@@ -90,6 +90,30 @@ class Location(models.Model):
         ordering = ['route_order', 'visit_date', 'id']
 
 
+class ReverseGeocodeCache(models.Model):
+    """Persistent provider result for a normalized coordinate pair."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    provider = models.CharField(max_length=32, default='nominatim')
+    coordinate_key = models.CharField(max_length=64)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    city = models.CharField(max_length=150, blank=True, default='')
+    state = models.CharField(max_length=150, blank=True, default='')
+    country = models.CharField(max_length=150, blank=True, default='')
+    country_code = models.CharField(max_length=2, blank=True, default='')
+    display_name = models.TextField(blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['provider', 'coordinate_key'],
+                name='unique_reverse_geocode_provider_coordinate',
+            ),
+        ]
+
+
 class Expense(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     EXPENSE_TYPE_CHOICES = [

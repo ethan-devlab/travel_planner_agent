@@ -9,6 +9,7 @@ from django.db.models import Q
 from app.models import Itinerary
 from app.views.itinerary.route_helpers import serialize_route_waypoints
 
+from ..services.itinerary_review import CHECK_TYPES, build_itinerary_review_evidence
 from ..tool_context import get_current_planner_user
 from .common import planner_tool
 
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @planner_tool
-def review_itinerary_on_request(itinerary_id=None, review_focus=""):
+def review_itinerary_on_request(itinerary_id=None, check_type="overall"):
     """Return saved itinerary facts and AI-facing review guidance on request.
 
     The tool is intentionally read-only. The planner agent should use the
@@ -24,6 +25,14 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
     route, and budget reasonableness without hardcoded country or city rules.
     """
     tool_name = "review_itinerary_on_request"
+    normalized_check_type = str(check_type or "overall").strip()
+    if normalized_check_type not in CHECK_TYPES:
+        return _error(
+            tool_name,
+            "invalid_check_type",
+            "check_type must be one of: overall, stops, route, budget.",
+        )
+
     user = get_current_planner_user()
     auth_error = _require_authenticated_user(user, tool_name)
     if auth_error:
@@ -41,23 +50,39 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
     locations = list(itinerary.locations.prefetch_related("expenses").all())
     route_waypoints = serialize_route_waypoints(itinerary)
     risks = _review_risks(itinerary, locations, route_waypoints)
+    evidence = build_itinerary_review_evidence(
+        itinerary,
+        locations,
+        normalized_check_type,
+    )
+    risks.extend(evidence["risks"])
+    risks = _dedupe_risks(risks)
+    if not risks:
+        risks.append(_risk(
+            "no_major_risks_found",
+            "No major structural or focused evidence risks were found from the saved itinerary.",
+        ))
+
     suggested_next_actions = _suggested_next_actions(itinerary, locations, route_waypoints, risks)
+    suggested_next_actions.extend(evidence["suggested_next_actions"])
+    suggested_next_actions = list(dict.fromkeys(suggested_next_actions))
     expense_total = _expense_total(locations)
     saved_locations = _saved_location_review_data(locations)
 
     logger.info(
-        "review tool %s reviewed itinerary %s for user %s with %s locations, %s waypoints, focus length %s.",
+        "review tool %s reviewed itinerary %s for user %s with check type %s, %s locations, and %s waypoints.",
         tool_name,
         itinerary.id,
         user.id,
+        normalized_check_type,
         len(locations),
         len(route_waypoints),
-        len(str(review_focus or "")),
     )
     return {
         "status": "ok",
         "tool": tool_name,
         "itinerary_id": str(itinerary.id),
+        "check_type": normalized_check_type,
         "review_summary": {
             "title": itinerary.title,
             "destination": itinerary.location,
@@ -70,6 +95,8 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
             "budget_currency": itinerary.budget_currency,
             "location_count": len(locations),
             "route_waypoint_count": len(route_waypoints),
+            "calculated_route_count": len(evidence["route_legs"]),
+            "geography_count": len(evidence["location_geographies"]),
             "expense_total": str(expense_total),
             "expense_count": sum(location.expenses.count() for location in locations),
             "tag_names": list(itinerary.tags.values_list("name", flat=True)),
@@ -78,16 +105,21 @@ def review_itinerary_on_request(itinerary_id=None, review_focus=""):
             ),
         },
         "saved_locations": saved_locations,
+        "location_geographies": evidence["location_geographies"],
+        "routes": evidence["route_legs"],
+        "route_order_analysis": evidence["route_order_analysis"],
         "ai_review_guidance": {
             "stop_consistency": (
-                "請根據行程標題、目的地與景點名稱，使用常識判斷景點是否看起來屬於"
-                "同一國家、城市、區域或合理旅遊範圍。若例如日本行中出現台北、首爾、"
-                "韓國、台北大巨蛋等疑似不同國家或地區的景點，請提醒使用者確認。"
-                "若可能是跨國行程，不要直接判定錯誤，請建議使用者在標題或描述中標明跨國安排。"
+                "請優先使用 location_geographies 的城市與國家證據判斷景點範圍。"
+                "若多個國家可能是刻意的跨國行程，不要直接判定錯誤，請提醒使用者確認跨國安排。"
             ),
             "date_route_budget": (
-                "請依已儲存景點的造訪日期、交通方式、路線順序、預算與支出摘要，"
-                "檢查日期是否落在行程期間內、路線順序是否合理、支出是否接近或超過預算。"
+                "請依 risks、routes 與 route_order_analysis 的計算證據說明時間、交通與繞路問題。"
+                "routes 中每一項都稱為「路線」，絕對不要使用「路線腿」。"
+                "route_order_analysis 若為 not_applicable，必須使用 reason 說明無法分析的具體原因。"
+                "route_order_analysis 若為 not_requested，代表本次檢查刻意未執行路線分析，"
+                "不得描述成路線無法取得、計算失敗或缺少資料。"
+                "對 verification_required 或 unavailable 的結果必須說明無法自動驗證，不得宣稱檢查通過。"
             ),
             "visibility": (
                 "請不要在使用者可見回覆中顯示 itinerary_id、資料庫 id、internal id、"
@@ -152,8 +184,6 @@ def _review_risks(itinerary, locations, route_waypoints):
     elif expense_total and itinerary.budget and expense_total >= itinerary.budget * Decimal("0.9"):
         risks.append(_risk("expenses_near_budget", "Recorded stop expenses are close to the itinerary budget."))
 
-    if not risks:
-        risks.append(_risk("no_major_risks_found", "No major structural risks were found from saved stops, route data, and expenses."))
     return risks
 
 
@@ -225,6 +255,18 @@ def _risk(code, message):
         "code": code,
         "message": message,
     }
+
+
+def _dedupe_risks(risks):
+    unique = []
+    seen = set()
+    for risk in risks:
+        marker = (risk["code"], risk["message"])
+        if marker in seen:
+            continue
+        seen.add(marker)
+        unique.append(risk)
+    return unique
 
 
 def _error(tool_name, error_code, message):

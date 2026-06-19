@@ -7,9 +7,10 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 ROUTING_PROFILES = {'driving', 'walking', 'cycling'}
+OSRM_SERVICES = {'route', 'trip', 'table', 'nearest'}
 
 
-def normalize_routing_service_url(raw_url):
+def normalize_osrm_base_url(raw_url):
     value = (raw_url or '').strip().rstrip('/')
     if not value:
         return '', 'driving'
@@ -24,11 +25,20 @@ def normalize_routing_service_url(raw_url):
     if path_parts and path_parts[-1] in ROUTING_PROFILES:
         profile = path_parts.pop()
 
-    if path_parts[-2:] != ['route', 'v1']:
-        path_parts.extend(['route', 'v1'])
+    if len(path_parts) >= 2 and path_parts[-1] == 'v1' and path_parts[-2] in OSRM_SERVICES:
+        path_parts = path_parts[:-2]
 
-    normalized_path = '/' + '/'.join(path_parts)
+    normalized_path = f"/{'/'.join(path_parts)}" if path_parts else ''
     normalized_url = urlunparse((parsed.scheme, parsed.netloc, normalized_path, '', '', ''))
+    return normalized_url.rstrip('/'), profile
+
+
+def normalize_routing_service_url(raw_url):
+    base_url, profile = normalize_osrm_base_url(raw_url)
+    if not base_url:
+        return '', profile
+
+    normalized_url = f'{base_url}/route/v1'
     if normalized_url != raw_url:
         logger.info('Normalized ROUTING_SERVICE_URL for Leaflet Routing Machine.')
 

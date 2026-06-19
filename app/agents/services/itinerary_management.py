@@ -2,22 +2,18 @@
 
 import json
 import logging
-import threading
-import time as time_module
 import uuid
 from datetime import datetime, time
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
-import requests
-
 from ...utils.budget_currency import BUDGET_CURRENCY_CODES, resolve_budget_currency
 from ...models import Expense, Itinerary, Location, Status, Tag, TravelMethod
+from .nominatim import forward_geocode
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +32,6 @@ REQUIRED_CREATE_FIELDS = {"title", "start_date", "end_date", "budget"}
 VALID_STATUSES = {choice.value for choice in Status}
 VALID_TRAVEL_METHODS = {choice.value for choice in TravelMethod}
 VALID_EXPENSE_TYPES = {choice[0] for choice in Expense.EXPENSE_TYPE_CHOICES}
-NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
-NOMINATIM_USER_AGENT = "TravelPlannerAgent/1.0 (itinerary location geocoding)"
-NOMINATIM_MIN_INTERVAL_SECONDS = 1.0
-_nominatim_lock = threading.Lock()
-_next_nominatim_request_at = 0.0
-
-
 def list_user_itineraries_for_user(user, include_shared=True, limit=10):
     auth_error = _require_authenticated_user(user, "list_user_itineraries")
     if auth_error:
@@ -676,75 +665,13 @@ def _validated_location(raw_location, index, geocoding_context=""):
     }, None
 
 
-def _coordinates_need_geocoding(latitude, longitude):
-    return latitude == 0.0 and longitude == 0.0
-
-
 def _geocode_location_coordinates(location_name, geocoding_context=""):
-    coordinates = _nominatim_geocode_with_fallback(location_name, geocoding_context)
+    coordinates = forward_geocode(location_name, geocoding_context)
     if coordinates:
         return coordinates
 
     logger.warning("itinerary-management Nominatim geocoding found no coordinates for location length %s.", len(location_name))
     return 0.0, 0.0
-
-
-def _geocoding_query(location_name, geocoding_context=""):
-    context = str(geocoding_context or "").strip()
-    if not context:
-        return location_name
-    if context.lower() in location_name.lower():
-        return location_name
-    return f"{location_name}, {context}"
-
-
-def _nominatim_geocode_with_fallback(location_name, geocoding_context=""):
-    queries = _unique_in_order([
-        _geocoding_query(location_name, geocoding_context),
-        location_name,
-    ])
-    for query in queries:
-        coordinates = _nominatim_geocode(query)
-        if coordinates:
-            logger.info("itinerary-management geocoded location with Nominatim using query length %s.", len(query))
-            return coordinates
-    return None
-
-
-def _nominatim_geocode(query):
-    try:
-        _throttle_nominatim_request()
-        response = requests.get(
-            NOMINATIM_SEARCH_URL,
-            params={"q": query, "format": "json", "limit": 1},
-            headers={"Accept": "application/json", "User-Agent": NOMINATIM_USER_AGENT},
-            timeout=settings.REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        results = response.json()
-    except requests.RequestException as exc:
-        logger.warning("Nominatim geocoding request failed with %s.", exc.__class__.__name__)
-        return None
-
-    if not isinstance(results, list):
-        return None
-
-    for result in results:
-        latitude = _parse_float(result.get("lat"), 0.0)
-        longitude = _parse_float(result.get("lon"), 0.0)
-        if not _coordinates_need_geocoding(latitude, longitude):
-            return latitude, longitude
-    return None
-
-
-def _throttle_nominatim_request():
-    global _next_nominatim_request_at
-    with _nominatim_lock:
-        now = time_module.monotonic()
-        delay = _next_nominatim_request_at - now
-        if delay > 0:
-            time_module.sleep(delay)
-        _next_nominatim_request_at = time_module.monotonic() + NOMINATIM_MIN_INTERVAL_SECONDS
 
 
 def _validated_expenses(raw_expenses):
