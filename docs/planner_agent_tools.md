@@ -25,7 +25,7 @@ This document defines the planner-agent scope. The app exposes one `planner_agen
 | Tool group | Module | Future app call targets | Status | Notes |
 | --- | --- | --- | --- | --- |
 | `itinerary_management` | `app.agents.tools.itinerary_tools` | `app.models.Itinerary`, `app.models.Location`, `app.views.itinerary.location_form`, `app.views.itinerary.persistence`, `app.views.itinerary.delete` | Implemented | Suggest, create, modify, and manage itineraries. |
-| `itinerary_review` | `app.agents.tools.review_tools` | `app.models.Itinerary`, `app.models.Location`, `app.models.Expense`, route waypoint serialization | Stub only | Review an itinerary only after an explicit user request. |
+| `itinerary_review` | `app.agents.tools.review_tools` | `app.models.Itinerary`, `app.models.Location`, `app.models.Expense`, OSRM route evidence, cached Nominatim geography | Implemented | Review saved itinerary structure, stops, route timing/order, transport evidence, and budget only after an explicit request. |
 | `travel_context` | `app.agents.tools.travel_context_tools` | `app.views.weather.weather.fetch_weather_and_forecast`, `app.views.exchange.exchange.get_exchange_rate` | Stub only | Query weather forecasts and currency exchange context. |
 | `public_itinerary_lookup` | `app.agents.tools.public_itinerary_tools` | `app.views.itinerary.search`, `app.views.itinerary.template`, public `Itinerary` querysets | Stub only | Search and summarize public itinerary references. |
 | `calendar_management` | `app.agents.tools.calendar_tools` | `app.models.Event`, `app.views.calendar.calendar` event APIs | Implemented | Create, list, update, and delete calendar events. |
@@ -39,5 +39,8 @@ This document defines the planner-agent scope. The app exposes one `planner_agen
 - Itinerary location updates are patch-based by default to prevent accidental rewrites. Full replacement must be explicit with `replace_locations=true`.
 - When planner-agent sets visit dates, it must include visit time and must not rename existing location names/language unless the user explicitly asks.
 - Review tools must only run when the user explicitly asks for itinerary review.
+- Review focus is explicit: `route` runs route evidence, `stops` runs reverse geocoding, `overall` runs both, and `budget` avoids external route/geography requests.
+- OSRM is treated as driving-only. Walking duration is an estimate; bus, train, HSR, plane, and boat require separate timetable or operator confirmation.
+- Nominatim reverse results are persistently cached, throttled to the configured interval, and attributed to OpenStreetMap in the AI-check UI.
 - Calendar update and deletion tools must confirm ownership before mutating events.
 - Weather and currency tools should reuse existing service functions before adding new providers.
