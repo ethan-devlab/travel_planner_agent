@@ -42,7 +42,7 @@ ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_
 
 CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if os.getenv('CSRF_TRUSTED_ORIGINS') else []
 
-ALLOWED_IP_RANGES = os.getenv('ALLOWED_IP_RANGES', '').split(',') if os.getenv('ALLOWED_IP_RANGES') else ['0.0.0.0/0']
+ALLOWED_IP_RANGES = os.getenv('ALLOWED_IP_RANGES', '').split(',') if os.getenv('ALLOWED_IP_RANGES') else ['0.0.0.0/0', "::/0"]
 print(f"Allowed IP ranges: {ALLOWED_IP_RANGES}")
 # ALLOWED_IP_RANGES = ["0.0.0.0/0", "::/0"]  # Allow all IPv4 and IPv6 addresses by default, can be overridden by environment variable
 
@@ -140,18 +140,18 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'app' / 'static']
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'  # Use WhiteNoise's static files storage for better performance
 STATIC_ROOT = BASE_DIR / 'static'
-STORAGES = {
-    'default': {
-        'BACKEND': 'django.core.files.storage.FileSystemStorage',
-    },
-    'staticfiles': {
-        'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
-    },
-}
+# STORAGES = {
+#     'default': {
+#         'BACKEND': 'django.core.files.storage.FileSystemStorage',
+#     },
+#     'staticfiles': {
+#         'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+#     },
+# }
 
-if not DEBUG and not RUNNING_TESTS:
-    # Content-hashed static assets let browsers/CDNs cache aggressively without serving stale files after deploys.
-    STORAGES['staticfiles']['BACKEND'] = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
+# if not DEBUG and not RUNNING_TESTS:
+#     # Content-hashed static assets let browsers/CDNs cache aggressively without serving stale files after deploys.
+#     STORAGES['staticfiles']['BACKEND'] = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage'
 
 LOGIN_URL = '/login/'
 ROUTING_SERVICE_URL = os.getenv('ROUTING_SERVICE_URL', 'router.project-osrm.org')
