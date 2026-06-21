@@ -60,8 +60,8 @@ cover/
 app/logs/*
 !app/logs/.gitkeep
 local_settings.py
-# db.sqlite3
-# db.sqlite3-journal
+db.sqlite3
+db.sqlite3-journal
 
 # Flask stuff:
 instance/
@@ -130,11 +130,11 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-# .env
+.env
 .venv
-# env/*
-# venv/
-# ENV/*
+env/*
+venv/
+ENV/*
 env.bak/
 venv.bak/
 !env/.env.example
@@ -186,3 +186,4 @@ django_project/
 
 # Django collectstatic output; source assets live under app/static/.
 /static/
+static/
