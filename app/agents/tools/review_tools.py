@@ -20,9 +20,10 @@ logger = logging.getLogger(__name__)
 def review_itinerary_on_request(itinerary_id=None, check_type="overall"):
     """Return saved itinerary facts and AI-facing review guidance on request.
 
-    The tool is intentionally read-only. The planner agent should use the
-    returned guidance and saved trip facts to judge destination, stop, timing,
-    route, and budget reasonableness without hardcoded country or city rules.
+    The tool never modifies saved itinerary, location, or expense rows. Stops
+    and overall reviews may create or refresh ReverseGeocodeCache rows because
+    reverse geocoding results are stored as reusable external geography
+    evidence.
     """
     tool_name = "review_itinerary_on_request"
     normalized_check_type = str(check_type or "overall").strip()
@@ -49,7 +50,7 @@ def review_itinerary_on_request(itinerary_id=None, check_type="overall"):
 
     locations = list(itinerary.locations.prefetch_related("expenses").all())
     route_waypoints = serialize_route_waypoints(itinerary)
-    risks = _review_risks(itinerary, locations, route_waypoints)
+    risks = _review_risks(itinerary, locations, route_waypoints, normalized_check_type)
     evidence = build_itinerary_review_evidence(
         itinerary,
         locations,
@@ -63,7 +64,13 @@ def review_itinerary_on_request(itinerary_id=None, check_type="overall"):
             "No major structural or focused evidence risks were found from the saved itinerary.",
         ))
 
-    suggested_next_actions = _suggested_next_actions(itinerary, locations, route_waypoints, risks)
+    suggested_next_actions = _suggested_next_actions(
+        itinerary,
+        locations,
+        route_waypoints,
+        risks,
+        normalized_check_type,
+    )
     suggested_next_actions.extend(evidence["suggested_next_actions"])
     suggested_next_actions = list(dict.fromkeys(suggested_next_actions))
     expense_total = _expense_total(locations)
@@ -114,16 +121,17 @@ def review_itinerary_on_request(itinerary_id=None, check_type="overall"):
                 "若多個國家可能是刻意的跨國行程，不要直接判定錯誤，請提醒使用者確認跨國安排。"
             ),
             "date_route_budget": (
-                "請依 risks、routes 與 route_order_analysis 的計算證據說明時間、交通與繞路問題。"
-                "routes 中每一項都稱為「路線」，絕對不要使用「路線腿」。"
+                "請依 risks、routes、route_order_analysis 與 suggested_next_actions "
+                "的計算證據說明時間、交通、繞路與預算問題。"
+                "routes 中每一項都稱為「路線」，避免使用內部工程術語。"
                 "route_order_analysis 若為 not_applicable，必須使用 reason 說明無法分析的具體原因。"
                 "route_order_analysis 若為 not_requested，代表本次檢查刻意未執行路線分析，"
                 "不得描述成路線無法取得、計算失敗或缺少資料。"
                 "對 verification_required 或 unavailable 的結果必須說明無法自動驗證，不得宣稱檢查通過。"
             ),
             "visibility": (
-                "請不要在使用者可見回覆中顯示 itinerary_id、資料庫 id、internal id、"
-                "主鍵或技術欄位名稱；請改用目前行程、此行程或行程標題稱呼。"
+                "請以目前行程、此行程或行程標題稱呼行程；"
+                "避免輸出任何識別資訊、技術欄位或欄位名稱。"
             ),
         },
         "risks": risks,
@@ -165,18 +173,19 @@ def _reviewable_itinerary_for_user(user, itinerary_pk):
     )
 
 
-def _review_risks(itinerary, locations, route_waypoints):
+def _review_risks(itinerary, locations, route_waypoints, check_type):
     risks = []
-    if not locations:
-        risks.append(_risk("missing_stops", "Add stops before relying on this itinerary."))
-    if len(locations) == 1:
-        risks.append(_risk("single_stop", "Add at least one more stop for a useful route review."))
-    if len(route_waypoints) < len(locations):
-        risks.append(_risk("missing_route_coordinates", "Some stops do not have usable route coordinates."))
-    if any(location.visit_date is None for location in locations):
-        risks.append(_risk("missing_visit_times", "Some stops do not have visit dates and times."))
-    if any(_visit_date_outside_itinerary(location, itinerary) for location in locations if location.visit_date):
-        risks.append(_risk("visit_date_outside_trip", "Some stop visit dates fall outside the itinerary date range."))
+    if check_type != "budget":
+        if not locations:
+            risks.append(_risk("missing_stops", "Add stops before relying on this itinerary."))
+        if len(locations) == 1:
+            risks.append(_risk("single_stop", "Add at least one more stop for a useful route review."))
+        if len(route_waypoints) < len(locations):
+            risks.append(_risk("missing_route_coordinates", "Some stops do not have usable route coordinates."))
+        if any(location.visit_date is None for location in locations):
+            risks.append(_risk("missing_visit_times", "Some stops do not have visit dates and times."))
+        if any(_visit_date_outside_itinerary(location, itinerary) for location in locations if location.visit_date):
+            risks.append(_risk("visit_date_outside_trip", "Some stop visit dates fall outside the itinerary date range."))
 
     expense_total = _expense_total(locations)
     if expense_total > itinerary.budget:
@@ -187,7 +196,7 @@ def _review_risks(itinerary, locations, route_waypoints):
     return risks
 
 
-def _suggested_next_actions(itinerary, locations, route_waypoints, risks):
+def _suggested_next_actions(itinerary, locations, route_waypoints, risks, check_type):
     actions = []
     risk_codes = {risk["code"] for risk in risks}
     if "missing_stops" in risk_codes or "single_stop" in risk_codes:
@@ -198,10 +207,13 @@ def _suggested_next_actions(itinerary, locations, route_waypoints, risks):
         actions.append("Review stop dates and times against the trip date range.")
     if "expenses_over_budget" in risk_codes or "expenses_near_budget" in risk_codes:
         actions.append("Adjust the budget or reduce planned stop expenses.")
-    if not actions and locations and route_waypoints:
+    if check_type != "budget" and not actions and locations and route_waypoints:
         actions.append("Review travel time between adjacent stops and confirm the route order.")
     if itinerary.status == "draft":
-        actions.append("Keep the itinerary in draft until timing, route, and budget risks are resolved.")
+        if check_type == "budget":
+            actions.append("Keep the itinerary in draft until budget risks are resolved.")
+        else:
+            actions.append("Keep the itinerary in draft until timing, route, and budget risks are resolved.")
     return actions
 
 

@@ -82,8 +82,12 @@ If `ROUTING_SERVICE_URL` is not configured, the map still saves location markers
 
 ## AI Itinerary Checks
 
-The edit page can review the saved itinerary with four focuses: overall, stops, route, or budget. Unsaved form changes are intentionally excluded.
+The edit page can review the saved itinerary with four focuses: overall, stops, route, or budget. Unsaved form changes are intentionally excluded. Reviews do not modify saved itinerary, location, or expense data. Stops and overall reviews may create or refresh `ReverseGeocodeCache` rows so external reverse-geocoding evidence can be reused.
 
 Route checks treat each location's transportation method as the incoming leg from the previous stop; the first stop's method is ignored. Car timing uses the configured OSRM driving service. Walking time is estimated from straight-line distance, while bus, train, HSR, plane, and boat legs are marked for manual schedule confirmation. Time-gap checks compare saved stop start times only and do not include time spent at each attraction.
 
-Stop checks resolve city and country from saved coordinates with Nominatim. Results are cached for 90 days by default and public-service requests are throttled. Configure `NOMINATIM_BASE_URL`, `NOMINATIM_USER_AGENT`, `NOMINATIM_MIN_INTERVAL_SECONDS`, and `REVERSE_GEOCODE_CACHE_DAYS` for the deployment. Public Nominatim is intended only for moderate user-triggered use; larger deployments should use a hosted or self-managed provider.
+Budget checks focus their primary risks on recorded expenses and budget pressure. They do not run external route or geography requests and should not ask users to fix route coordinates unless another requested review focus found route evidence.
+
+Stop checks resolve city and country from saved coordinates with Nominatim. Results are cached for 90 days by default and public-service requests are throttled. The current throttle in `app/agents/services/nominatim.py` is process-local only: it spaces requests within one Python process, but it does not enforce a global limit across gunicorn workers, multiple processes, or multiple machines. Configure `NOMINATIM_BASE_URL`, `NOMINATIM_USER_AGENT`, `NOMINATIM_MIN_INTERVAL_SECONDS`, and `REVERSE_GEOCODE_CACHE_DAYS` for the deployment.
+
+Public `nominatim.openstreetmap.org` usage must follow the official [OSMF Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/): keep total application traffic at no more than 1 request per second, send a valid identifying User-Agent or Referer, display OpenStreetMap attribution, and cache repeated results. Small user-triggered usage is acceptable when traffic stays moderate. Production or high-traffic deployments should use a self-hosted Nominatim instance, a commercial geocoding provider, a centralized proxy, or a DB/Redis-backed distributed throttle before relying on the public service.

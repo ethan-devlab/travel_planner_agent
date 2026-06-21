@@ -1875,6 +1875,7 @@ class PlannerAgentToolTests(TestCase):
         self.assertIn('城市與國家證據', guidance_text)
         self.assertIn('跨國行程', guidance_text)
         self.assertIn('routes', guidance_text)
+        self.assertIn('suggested_next_actions', guidance_text)
         self.assertNotIn('route_legs', guidance_text)
         self.assertIn('verification_required', guidance_text)
         self.assertIn('not_requested', guidance_text)
@@ -1882,6 +1883,62 @@ class PlannerAgentToolTests(TestCase):
         self.assertEqual(result['review_summary']['title'], 'Japan Trip')
         self.assertEqual(result['review_summary']['destination'], 'Tokyo, Japan')
         self.assertEqual(result['saved_locations'][0]['name'], 'Taipei Dome')
+
+    def test_review_payload_names_are_llm_friendly_and_guidance_hides_internal_terms(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary()
+        itinerary.locations.create(
+            name='Taipei 101',
+            travel_method='walk',
+            visit_date='2026-06-02T09:00:00+08:00',
+            latitude=25.0339,
+            longitude=121.5645,
+            route_order=0,
+        )
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id, check_type='budget')
+
+        for public_key in (
+            'routes',
+            'location_geographies',
+            'route_order_analysis',
+            'risks',
+            'suggested_next_actions',
+        ):
+            self.assertIn(public_key, result)
+        self.assertNotIn('route_legs', result)
+        self.assertIsInstance(result['routes'], list)
+        self.assertIsInstance(result['location_geographies'], list)
+        self.assertIsInstance(result['route_order_analysis'], dict)
+        self.assertIsInstance(result['risks'], list)
+        self.assertIsInstance(result['suggested_next_actions'], list)
+
+        guidance_text = json.dumps(result['ai_review_guidance'], ensure_ascii=False)
+        for public_key in (
+            'routes',
+            'location_geographies',
+            'route_order_analysis',
+            'risks',
+            'suggested_next_actions',
+        ):
+            self.assertIn(public_key, guidance_text)
+        for forbidden_term in (
+            '路線腿',
+            'route_legs',
+            'route leg',
+            'route legs',
+            'itinerary_id',
+            'database id',
+            'internal id',
+            'primary key',
+            'primary keys',
+            '資料庫 id',
+            '主鍵',
+        ):
+            self.assertNotIn(forbidden_term, guidance_text)
 
     def test_review_tool_does_not_modify_itinerary_data(self):
         from app.agents.tool_context import planner_tool_user
@@ -1931,6 +1988,125 @@ class PlannerAgentToolTests(TestCase):
         }
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(after, before)
+
+    def test_stops_review_keeps_itinerary_data_but_can_create_reverse_geocode_cache(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+        from app.models import ReverseGeocodeCache
+
+        itinerary = self._itinerary()
+        location = itinerary.locations.create(
+            name='Cached Stop',
+            travel_method='walk',
+            note='Keep this saved stop unchanged',
+            visit_date='2026-06-02T09:00:00+08:00',
+            latitude=25.0339,
+            longitude=121.5645,
+            route_order=0,
+        )
+        expense = location.expenses.create(expense_type='ticket', amount='500.00')
+        location.refresh_from_db()
+        expense.refresh_from_db()
+        before = {
+            'itinerary_count': Itinerary.objects.count(),
+            'title': itinerary.title,
+            'location': itinerary.location,
+            'budget': str(itinerary.budget),
+            'status': itinerary.status,
+            'location_count': itinerary.locations.count(),
+            'location_name': location.name,
+            'location_note': location.note,
+            'location_latitude': location.latitude,
+            'location_longitude': location.longitude,
+            'location_route_order': location.route_order,
+            'expense_count': location.expenses.count(),
+            'expense_type': expense.expense_type,
+            'expense_amount': str(expense.amount),
+        }
+        payload = {
+            'display_name': 'Xinyi, Taipei, Taiwan',
+            'address': {
+                'city': 'Taipei',
+                'state': 'Taiwan',
+                'country': 'Taiwan',
+                'country_code': 'tw',
+            },
+        }
+
+        with patch('app.agents.services.nominatim._throttle_request'), patch(
+            'app.agents.services.nominatim.requests.get',
+            return_value=FakeResponse(payload),
+        ) as request_mock, planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=itinerary.id, check_type='stops')
+
+        itinerary.refresh_from_db()
+        location.refresh_from_db()
+        expense.refresh_from_db()
+        after = {
+            'itinerary_count': Itinerary.objects.count(),
+            'title': itinerary.title,
+            'location': itinerary.location,
+            'budget': str(itinerary.budget),
+            'status': itinerary.status,
+            'location_count': itinerary.locations.count(),
+            'location_name': location.name,
+            'location_note': location.note,
+            'location_latitude': location.latitude,
+            'location_longitude': location.longitude,
+            'location_route_order': location.route_order,
+            'expense_count': location.expenses.count(),
+            'expense_type': expense.expense_type,
+            'expense_amount': str(expense.amount),
+        }
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(after, before)
+        self.assertEqual(ReverseGeocodeCache.objects.count(), 1)
+        cache = ReverseGeocodeCache.objects.get()
+        self.assertEqual(cache.provider, 'nominatim')
+        self.assertEqual(cache.coordinate_key, '25.03390,121.56450')
+        self.assertEqual(cache.city, 'Taipei')
+        request_mock.assert_called_once()
+
+    def test_budget_review_keeps_route_and_stop_risks_out_of_primary_risks(self):
+        from app.agents.tool_context import planner_tool_user
+        from app.agents.tools.review_tools import review_itinerary_on_request
+
+        itinerary = self._itinerary(budget='1000.00')
+        location = itinerary.locations.create(
+            name='Coordinate Missing Stop',
+            travel_method='plane',
+            visit_date='2026-06-02T09:00:00+08:00',
+            latitude=0,
+            longitude=0,
+            route_order=0,
+        )
+        location.expenses.create(expense_type='ticket', amount='1200.00')
+
+        with planner_tool_user(self.owner):
+            result = invoke_tool(review_itinerary_on_request, itinerary_id=str(itinerary.id), check_type='budget')
+
+        risk_codes = {risk['code'] for risk in result['risks']}
+        self.assertIn('expenses_over_budget', risk_codes)
+        self.assertNotIn('missing_route_coordinates', risk_codes)
+        self.assertNotIn('single_stop', risk_codes)
+        self.assertFalse(risk_codes & {
+            'long_walking_leg',
+            'route_chronological_conflict',
+            'route_coordinate_far_from_road',
+            'route_detour',
+            'route_interval_insufficient',
+            'route_interval_tight',
+            'route_optimization_unavailable',
+            'route_service_unavailable',
+            'short_plane_leg',
+            'transport_verification_required',
+        })
+        action_text = ' '.join(result['suggested_next_actions']).lower()
+        self.assertNotIn('coordinates', action_text)
+        self.assertNotIn('route', action_text)
+        self.assertEqual(result['routes'], [])
+        self.assertEqual(result['location_geographies'], [])
+        self.assertEqual(result['route_order_analysis']['status'], 'not_requested')
 
     def test_review_includes_route_and_expense_risk_signals(self):
         from app.agents.tool_context import planner_tool_user
@@ -2200,7 +2376,7 @@ class ItineraryReviewEvidenceTests(TestCase):
         route = self._route_payload([2400.0, 2400.0, 2400.0])
         trip = self._trip_payload(4800.0, [0, 2, 1, 3])
 
-        with patch('app.agents.services.route_review.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
+        with patch('app.agents.services.route_osrm_client.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
             evidence = build_itinerary_review_evidence(
                 self.itinerary,
                 list(self.itinerary.locations.all()),
@@ -2225,7 +2401,7 @@ class ItineraryReviewEvidenceTests(TestCase):
         route = self._route_payload([1500.0, 1500.0])
         trip = self._trip_payload(2400.0, [0, 1, 2])
 
-        with patch('app.agents.services.route_review.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
+        with patch('app.agents.services.route_osrm_client.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
             evidence = build_itinerary_review_evidence(
                 self.itinerary,
                 list(self.itinerary.locations.all()),
@@ -2243,7 +2419,7 @@ class ItineraryReviewEvidenceTests(TestCase):
         self._stop('B', '2026-06-01T10:00:00+08:00', 25.00, 121.50, 1)
         route = self._route_payload([0.0], distances=[0.0], snap_distances=[10.0, 600.0])
 
-        with patch('app.agents.services.route_review.requests.get', return_value=FakeResponse(route)):
+        with patch('app.agents.services.route_osrm_client.requests.get', return_value=FakeResponse(route)):
             evidence = build_itinerary_review_evidence(
                 self.itinerary,
                 list(self.itinerary.locations.all()),
@@ -2264,7 +2440,7 @@ class ItineraryReviewEvidenceTests(TestCase):
         route = self._route_payload([600.0, 600.0, 600.0])
         trip = self._trip_payload(1800.0, [0, 1, 2, 3])
 
-        with patch('app.agents.services.route_review.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
+        with patch('app.agents.services.route_osrm_client.requests.get', side_effect=[FakeResponse(route), FakeResponse(trip)]):
             evidence = build_itinerary_review_evidence(
                 self.itinerary,
                 list(self.itinerary.locations.all()),
@@ -2288,7 +2464,7 @@ class ItineraryReviewEvidenceTests(TestCase):
         self._stop('C', '2026-06-02T09:00:00+08:00', 25.02, 121.52, 2)
         no_route = {'code': 'NoRoute', 'message': 'No route found'}
 
-        with patch('app.agents.services.route_review.requests.get', return_value=FakeResponse(no_route)):
+        with patch('app.agents.services.route_osrm_client.requests.get', return_value=FakeResponse(no_route)):
             evidence = build_itinerary_review_evidence(
                 self.itinerary,
                 list(self.itinerary.locations.all()),
@@ -2309,7 +2485,7 @@ class ItineraryReviewEvidenceTests(TestCase):
         self._stop('D', '2026-06-03T09:00:00+08:00', 25.03, 121.53, 3)
         route = self._route_payload([600.0])
 
-        with patch('app.agents.services.route_review.requests.get', return_value=FakeResponse(route)):
+        with patch('app.agents.services.route_osrm_client.requests.get', return_value=FakeResponse(route)):
             evidence = build_itinerary_review_evidence(
                 self.itinerary,
                 list(self.itinerary.locations.all()),
